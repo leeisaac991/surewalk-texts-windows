@@ -159,6 +159,7 @@
   .chip.picked { background: var(--accent-bg); color: var(--accent); }
   .chip.assigned { background: var(--fill); color: var(--text); }
   .chip.invalid { background: var(--red-bg); color: var(--red); }
+  .chip.grp { background: var(--accent-bg); color: var(--accent); } .chip.grp.one { background: var(--fill); color: var(--text); }
   /* How they confirmed: replied YES by text (a green speech bubble + check, no circle) */
   .tx-ic { flex: none; display: inline-grid; place-items: center; color: var(--green-text); }
   .tx-ic svg { width: 18px; height: 18px; display: block; }
@@ -451,6 +452,14 @@
     const [cls, label] = map[r.state] || ['ready', r.state];
     return `<span class="chip ${cls}">${label}</span>`;
   }
+  // 👥 Riding together: "Group A" (both / all told us) or "Group A · 1 side" (only one of them named the other).
+  function groupChip(r) {
+    const g = r.group;
+    if (!g) return '';
+    const others = g.members.filter(m => m.id !== r.id).map(m => `${m.first} (row ${m.row})`).join(', ');
+    const who = g.both ? 'They named each other' : 'Named by ' + g.members.filter(m => m.said).map(m => m.first).join(', ') + ' only';
+    return ` <span class="chip grp ${g.both ? '' : 'one'}" title="${esc(`Riding with ${others}. ${who}.`)}">👥 ${esc(g.letter ? 'Group ' + g.letter : 'Group')}${g.both ? '' : ' · 1 side'}</span>`;
+  }
   // A finished ride (picked up, cancelled, duplicate, opted out): no card, dimmer, so open rides stand out.
   const finished = r => r.sheetState === 'picked' || r.sheetState === 'cancelled' || r.sheetState === 'dup' || ['cancelled', 'duplicate', 'optedout'].includes(r.state);
   // The status stripe: red = invalid / flagged, amber = no reply, blue = sending / texted / ready, green = confirmed, gray = assigned.
@@ -492,7 +501,7 @@
   function riderRow(r, opts) {
     opts = opts || {};
     return `<button type="button" class="rrow ${rowKind(r)} ${selected === r.id && !opts.inbox ? 'sel' : ''}" onclick='select(${js(r.id)})' aria-label="${esc(`${r.first} ${r.last || ''}, ${r.pickupName} to ${r.dropoffName}`)}"${selected === r.id && !opts.inbox ? ' aria-current="true"' : ''}>
-        <span class="rm"><span class="rl1"><span class="rn">${esc(r.first)} ${esc(r.last || '')}</span>${r.ada ? '<span class="ada-chip" title="ADA pickup: an ADA vehicle and a supervisor go along">♿ ADA</span>' : ''}${!opts.inbox && unread(r) ? '<span class="unread" title="New reply"></span>' : ''}${txIcon(r)}${stateChip(r)}</span>
+        <span class="rm"><span class="rl1"><span class="rn">${esc(r.first)} ${esc(r.last || '')}</span>${r.ada ? '<span class="ada-chip" title="ADA pickup: an ADA vehicle and a supervisor go along">♿ ADA</span>' : ''}${!opts.inbox && unread(r) ? '<span class="unread" title="New reply"></span>' : ''}${txIcon(r)}${stateChip(r)}${groupChip(r)}</span>
           <span class="route" style="display:block">${esc(r.pickupName)}<span class="arrow">→</span>${esc(r.dropoffName)}</span>
           <span class="meta" style="display:block">${metaLine(r, opts.note)}</span>
           ${opts.why ? `<span class="note" style="display:block"><b>${esc(opts.why)}</b></span>` : ''}</span></button>`;
@@ -685,7 +694,7 @@
     const phone = r ? r.phone10 : selectedPhone;
     const isEd = r && editingRideId === r.id;
     const isCalling = r && callState.active && callState.rideId === r.id;
-    const sig = JSON.stringify([selected, selectedPhone, r && [r.state, r.noReply, r.note, r.sheetState, r.confirmedAt, r.call, r.first, r.last, r.pickupName, r.dropoffName, r.textedAt], threadOf(phone).map(m => [m.id, m.st]), sendBusy, [...working], isEd, isCalling]);
+    const sig = JSON.stringify([selected, selectedPhone, r && [r.state, r.noReply, r.note, JSON.stringify(r.group), r.sheetState, r.confirmedAt, r.call, r.first, r.last, r.pickupName, r.dropoffName, r.textedAt], threadOf(phone).map(m => [m.id, m.st]), sendBusy, [...working], isEd, isCalling]);
     if (sig === lastConvoSig) return;
     const draft = $('draft') ? $('draft').value : '';
     lastConvoSig = sig;
@@ -702,7 +711,7 @@
       headerHtml = `<div class="cv-l1"><h2>${isEd
           ? `<label class="ed-name"><input id="edName" value="${esc(draftEdit.first + (draftEdit.last ? ' ' + draftEdit.last : ''))}" size="${Math.max(6, (draftEdit.first + ' ' + draftEdit.last).trim().length + 1)}" oninput="this.size = Math.max(6, this.value.length + 1)" autocomplete="off" aria-label="Name" onkeydown="onEditKey(event)"></label>`
           : `<button type="button" class="ed-name" onclick="startInlineEdit('name')" title="Click to fix the name">${esc(r.first)} ${esc(r.last || '')}</button>`}
-          ${txIcon(r)}${stateChip(r)}</h2>
+          ${txIcon(r)}${stateChip(r)}${groupChip(r)}</h2>
           <span class="spacer"></span>
           ${r.phone10 ? `<button type="button" onclick='callPill(${js(r.id)})' class="call-pill ${isCalling ? 'active' : ''}" title="Call ${esc(r.first)} from the UT iPhone (BlueFerry calls; experimental)">
               ${PHONE_SVG}<span class="num">${esc(fmtPhone(r.phone10))}</span><span class="call-tag">${isCalling ? 'Calling… End' : 'Call'}</span></button>` : ''}</div>
@@ -721,6 +730,7 @@
     el.innerHTML = `<div class="cv-h">
         ${headerHtml}
         ${r && r.note && !r.invalid ? `<div class="note">${esc(r.note)}</div>` : ''}
+        ${r && r.group ? `<div class="note">👥 ${esc(r.group.letter ? 'Group ' + r.group.letter : 'Group (letter coming)')} with ${esc(r.group.members.filter(m => m.id !== r.id).map(m => `${m.first} (row ${m.row})`).join(', '))} — ${esc(r.group.both ? 'they named each other' : 'named by ' + r.group.members.filter(m => m.said).map(m => m.first).join(', ') + ' only')}. Change it in the calling panel.</div>` : ''}
         ${r && r.invalid ? `<div class="invalid-box"><span>⚠ <b>Invalid ride:</b> ${esc((state.cancelNotices.find(c => c.key === r.invalid) || {}).label || r.note)}. The cancel text is ready — review it, then approve to cancel the ride and send it.</span>
           <button class="primary" onclick='cancelText(${js(r.id)}, ${js(r.invalid)})'>Review cancel text</button></div>` : ''}
         <div class="cv-act">${r ? `${['ready', 'flagged'].includes(r.state) && !r.textedAt && r.sheetState === 'open' && r.phone10 && !r.invalid ? `<button class="primary" onclick='textRide(${js(r.id)})' ${working.has('confirm:' + r.id) ? 'disabled' : ''}>${working.has('confirm:' + r.id) ? 'Sending…' : 'Send confirmation'}</button>` : ''}

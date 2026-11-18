@@ -39,11 +39,12 @@
     }
     post('/api/status').then(function (s) {
       var dot = !s.configured ? '#9e9e9e' : s.lastError ? '#d32f2f' : !s.ready ? '#f57c00' : '#2e7d32';
-      var txt = !s.configured ? 'GroupMe sync: set up' : s.lastError ? 'GroupMe: ' + s.lastError : !s.ready ? 'GroupMe: reading chat…'
-        : 'GroupMe';
+      var lbl = s.mode === 'local' ? 'Sync' : 'GroupMe';
+      var txt = !s.configured ? 'Sync: set up' : s.lastError ? lbl + ': ' + s.lastError : !s.ready ? lbl + ': reading…'
+        : (s.mode === 'local' ? 'Sync: Excel' : 'GroupMe');
       b.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:' + dot + '"></span>';
       b.appendChild(document.createTextNode(txt));
-      b.title = 'Sync chat: ' + (s.group || 'not set') + '\n' + s.rides + ' rides tonight' + (s.waiting ? ' · ' + s.waiting + ' to post' : '') + '\nLast from Excel: ' + ago(s.lastExcelAt) + '\nChecked: ' + ago(s.lastPollAt) + '\nClick for GroupMe sync settings';
+      b.title = (s.mode === 'local' ? 'Syncing with the Excel panel on this laptop (no GroupMe)' : 'GroupMe sync chat: ' + (s.group || 'not set')) + '\n' + s.rides + ' rides tonight' + (s.waiting ? ' · ' + s.waiting + ' to post' : '') + '\nLast from Excel: ' + ago(s.lastExcelAt) + '\nChecked: ' + ago(s.lastPollAt) + '\nClick for sync settings (laptop key)';
     }).catch(function () { b.textContent = 'Texting server offline'; });
   }
 
@@ -56,7 +57,7 @@
     if (!top || document.getElementById('swAdd')) return;
     var b = document.createElement('button');
     b.id = 'swAdd'; b.className = 'pill'; b.type = 'button'; b.textContent = '＋ Ride';
-    b.title = 'Add a ride by hand (a rider who called in). The Excel panel with GroupMe sync on writes it into the sheet.';
+    b.title = 'Add a ride by hand (a rider who called in). The Excel panel with sync on writes it into the sheet.';
     b.style.cssText = 'cursor:pointer;border:0;font:inherit';
     b.onclick = addRide;
     var gmPill = document.getElementById('swGm');
@@ -149,7 +150,7 @@
       '<label style="display:grid;gap:3px;margin-top:8px;font-size:12px;color:var(--muted)">ADA assistance<select id="swaAda" style="width:100%"><option>No</option><option>Yes</option></select></label>' +
       field('swaNotes', 'Notes (optional)') +
       '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13px"><input type="checkbox" id="swaCalled"> Already talked to them — mark called (no confirmation text)</label>';
-    var pending = window.ask('Add a ride by hand. The Excel panel with GroupMe sync on puts it in the sheet within a few seconds.', 'Add ride', html);
+    var pending = window.ask('Add a ride by hand. The Excel panel with sync on puts it in the sheet within a few seconds.', 'Add ride', html);
     setTimeout(function () {
       FIELDS.forEach(function (i) { var el = document.getElementById(i); if (el && draft[i]) el.value = draft[i]; });
       var f = document.getElementById('swaPhone'); if (f) f.focus();
@@ -176,9 +177,23 @@
       if (!addsSeen[a.id] || addsSeen[a.id] === a.state) return;
       addsSeen[a.id] = a.state;
       if (a.state === 'added') say(a.first + "'s ride is in the sheet (row " + a.row + ').');
-      if (a.state === 'lost') say(a.first + "'s ride never made it into the sheet — is an Excel panel open with GroupMe sync on? Add it in Excel.", 'warn');
+      if (a.state === 'lost') say(a.first + "'s ride never made it into the sheet — is the Excel panel open with sync on? Add it in Excel.", 'warn');
     });
   }
-  function tick() { addButton(); pill(); post('/api/status').then(watchAdds).catch(function () {}); }
+  // Running on the old Linux texting computer: Windows is the main program now. A strip at the top says so, and
+  // the tab title is marked, so nobody mistakes this for the computer that should be texting.
+  var LEGACY = '__LEGACY__';
+  function legacy() {
+    if (LEGACY !== true || document.getElementById('swLegacy')) return;
+    var b = document.createElement('div');
+    b.id = 'swLegacy'; b.setAttribute('role', 'status');
+    b.style.cssText = 'position:sticky;top:0;z-index:1000;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;' +
+      'padding:6px 16px;font:600 12.5px/1.35 system-ui,sans-serif;text-align:center;background:repeating-linear-gradient(135deg,#6b6b70 0 12px,#5f5f64 12px 24px);color:#fff';
+    b.innerHTML = '<span style="background:#fff;color:#4a4a4f;border-radius:4px;padding:1px 7px;font-weight:800;letter-spacing:.04em">LINUX · DEPRECATED</span>' +
+      '<span>This is the old Linux version, kept as a backup. SURE Walk Texts now runs on the <b>Windows laptop</b> (START-TEXTING.cmd) — only one computer may text at a time.</span>';
+    document.body.insertBefore(b, document.body.firstChild);
+    if (!/^\[Linux/.test(document.title)) document.title = '[Linux – deprecated] ' + document.title;
+  }
+  function tick() { legacy(); addButton(); pill(); post('/api/status').then(watchAdds).catch(function () {}); }
   document.addEventListener('DOMContentLoaded', function () { tick(); setInterval(tick, 5000); });
 })();

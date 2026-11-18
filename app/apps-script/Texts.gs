@@ -11,7 +11,7 @@
  *   flags: [{ id, ts, kind, rideId, phone, text, note, done }]                 ("needs a look")
  *   seen:  inbound ids already handled (the bridge may resend a batch)
  */
-const FILE_VERSION_TEXTS = '2026-11-04h';
+const FILE_VERSION_TEXTS = '2026-11-04h'; // + 👥 group rides 2026-11-18
 
 const FRESH_MIN = 30;      // rides first seen later than this after submitting are not texted automatically
 // No answer to the confirmation (user, 2026-11-14): a reminder text after REMIND_MIN, a "call them" flag after
@@ -37,6 +37,10 @@ const TEMPLATE_DEFAULTS = {
   reminder: "REPLY YES to keep your SURE Walk ride ({pickup} → {dropoff}) — we haven't heard back from you. Reply CANCEL if you no longer need it.",
   whichMoody: "REPLY CENTER or DMC: which Moody do you mean — the Moody Center (the arena) or DMC (the Dealey Center, Moody College)? Hi {first}! SURE Walk got your ride request: {pickup} → {dropoff}.",
   optout: "You won't get any more texts from SURE Walk.",
+  // 👥 Added to the end of "you're confirmed" when other riders asked for a ride around the same time (no one is named):
+  groupAsk: "Riding with friends who also requested a SURE Walk ride? Reply with their first names (or NO if it's just you) so we can send you together.",
+  groupHint: "Going with friends? Text us their first names and we'll try to ride you together.",
+  groupJoined: "Got it, we'll try to get you and {names} in the same car.",
   poll_q1: "📋 SURE Walk (1/3)\nSURE Walk would love your input on shaping the future of our rides! Help us plan future features with 3 quick questions:\n\nHow would you like us to confirm your ride?\n1 • Text message\n2 • Phone call with ETA\n3 • Other (text us your own idea!)\n\n👉 Reply 1, 2, or text your idea (or SKIP)",
   poll_q2: "📋 SURE Walk (2/3)\n\nIn the future, would you like to request rides directly by texting this number?\n\n👉 Reply YES, NO, or MAYBE (or SKIP)",
   poll_q3: "📋 SURE Walk (3/3)\n\nAny other ideas you'd love to see SURE Walk try in the future?\n\n👉 Reply with your thoughts (or SKIP)",
@@ -49,6 +53,9 @@ const TEMPLATE_LABELS = {
   whichMoody: 'Pickup / drop-off is just "Moody" (asked before confirming)',
 
   confirmAda: 'New ADA ride (asks them to confirm they need ADA)', confirmedAda: 'ADA ride: they replied YES', adaNo: 'ADA ride: they replied NO (not needed)',
+  groupAsk: 'Group rides: added to "you\'re confirmed" when another rider asked for the same pickup + drop-off around the same time',
+  groupHint: 'Group rides: added to "you\'re confirmed" when another rider asked for the same pickup (different drop-off) around the same time',
+  groupJoined: 'Group rides: they named friends who also asked for a ride ({names})',
   reminder: 'No reply after 5 min (one reminder)', changeAsk: 'They asked to change their pickup / drop-off ({which}, {place})', changeDone: 'Pickup / drop-off changed after their YES',
   poll_q1: 'Poll: question 1, sent after "you\'re confirmed"', poll_q2: 'Poll: question 2', poll_q3: 'Poll: question 3',
   poll_thanks: 'Poll: thank-you', poll_nudge: 'Poll: answer not understood ({hint})',
@@ -84,7 +91,7 @@ function templates_() {
 function fill_(tpl, ride, eta, more) { // more: extra fill-ins, e.g. { which: 'pickup', place: 'Jester West' }
   const v = Object.assign({ first: ride.first || 'there', pickup: ride.pickupName || ride.pickup || '', dropoff: ride.dropoffName || ride.dropoff || '',
               eta: eta || 'about 10–15 min', row: ride.row || '' }, more || {});
-  return String(tpl).replace(/\{(first|pickup|dropoff|eta|row|which|place)\}/g, (m, k) => (v[k] == null ? m : v[k])).replace(/\s+/g, ' ').trim();
+  return String(tpl).replace(/\{(first|pickup|dropoff|eta|row|which|place|names)\}/g, (m, k) => (v[k] == null ? m : v[k])).replace(/\s+/g, ' ').trim();
 }
 // "about 8–12 min" from tonight's average wait (Arrival − Call of the last 10 rides).
 // Wait estimate from the LINE, not the last few rides: riders ahead ÷ how fast crews are reaching riders right now.
@@ -432,6 +439,137 @@ function rideDone_(tx, rides, id) {
   return !!rec.picked || !s || s.state !== 'open' || !!String(s.arrived || '').trim() || ['cancelled', 'duplicate'].includes(rec.state);
 }
 
+// ---------- 👥 Group rides ----------
+/*
+ * Friends often each submit a request. When a rider says YES and someone else asked for the same pickup within
+ * 10 min, their "you're confirmed" text ends with a question (same pickup + drop-off: groupAsk) or a hint (same
+ * pickup only: groupHint). No other rider is ever named to them: THEY name who they're with.
+ * Their answer: first names → matched against tonight's open rides requested within 20 min (not their own phone);
+ * "yes / we're together" → the one same-route ride, if there's exactly one; "no / just me" → riding alone.
+ * One side naming the other is enough to group them. A conflict (the other rider said they're alone, or is already
+ * in another group), names that match no ride, or a name that fits several rides → a "Group?" flag for you.
+ * A group = tx.groups[] { id, rides: [ride ids], said: { rideId: true } (who told us themselves), letter, wrote };
+ * the texting server gives it a letter and writes "Group A" into the Confirmed column once per rider (the same
+ * place the calling panel keeps its traveling-together groups), so a dispatcher can still change or remove it.
+ * Also read without asking: "Okay - I'm with Sam" right after the confirmation text.
+ */
+const GROUP_WINDOW_MIN = 10, GROUP_NAME_WINDOW_MIN = 20, GROUP_LISTEN_MIN = 45, GROUP_FLAG = 'Group?';
+const groupSamePlace_ = (a, b) => !!norm_(a) && norm_(a) === norm_(b);
+const groupLive_ = (tx, rides, x) => !rideDone_(tx, rides, x.id) && !x.dupOf && !['duplicate', 'cancelled', 'optedout'].includes((tx.rides[x.id] || {}).state);
+/** Open rides that look like they go with r: same pickup, requested within 10 min, another phone. exact = same drop-off too. */
+function groupMatches_(tx, rides, r) {
+  return rides.filter(x => x.id !== r.id && (!r.phone10 || x.phone10 !== r.phone10) && groupLive_(tx, rides, x) &&
+    Math.abs(x.tsMs - r.tsMs) <= GROUP_WINDOW_MIN * 60e3 && groupSamePlace_(x.pickupName, r.pickupName))
+    .map(x => ({ ride: x, exact: groupSamePlace_(x.dropoffName, r.dropoffName) }));
+}
+const groupOf_ = (tx, id) => (tx.groups || []).find(g => g.rides.includes(id)) || null;
+/** The ask (or hint) to add to r's "you're confirmed" text, or ''. Remembers that we asked. */
+function groupAskFor_(tx, rides, r, rec, tpl) {
+  if (!rec || rec.groupAsk || groupOf_(tx, r.id)) return '';
+  const m = groupMatches_(tx, rides, r);
+  if (!m.length) return '';
+  const exact = m.some(x => x.exact);
+  rec.groupAsk = { at: Date.now(), exact };
+  return fill_(exact ? tpl.groupAsk : tpl.groupHint, r);
+}
+const GROUP_STOP_ = new Set(("yes yeah yea yep yup ya yah ye ok okay k kk sure and n with w my me im i i'm iam m we we're were are am is be " +
+  "our friend friends friend's roommate roommates bf gf boyfriend girlfriend bestie buddy buddies the a an also too both all of " +
+  "them they us together group riding ride rides going go car same one two three plus just hi hey hello thanks thank you u so " +
+  "his her their name names it it's its that this here there coming come will be gonna want wants to for in on at by from " +
+  "sister brother bro sis mom dad cousin partner person people other others another girl guy guys she he lol haha please pls " +
+  "no nope nah alone solo myself only nobody none everyone all").split(' '));
+/** "Sam and Priya", "yes we're together", "no just me" → { names: [ride], unknown: [word], ambiguous: [word], together, alone } */
+function parseGroupReply_(text, cands, me) {
+  const t = String(text || '').toLowerCase().replace(/[’`]/g, "'").replace(/\s+/g, ' ').trim();
+  const words = t.replace(/[^a-z' -]/g, ' ').split(/[\s-]+/).map(w => w.replace(/^'+|'+$/g, '').replace(/'s$/, '')).filter(Boolean);
+  const out = { names: [], unknown: [], ambiguous: [], together: false, alone: false };
+  const first = x => norm_(String(x.first || '').split(/\s+/)[0]);
+  words.forEach(w => {
+    if (GROUP_STOP_.has(w) || w.length < 2) return;
+    const fits = cands.filter(x => { const f = first(x); return f && (f === w || (w.length >= 3 && f.length >= 3 && (f.startsWith(w) || w.startsWith(f)))); });
+    const exactName = fits.filter(x => first(x) === w), pool = exactName.length ? exactName : fits;
+    const pick = pool.length > 1 ? pool.filter(x => groupSamePlace_(x.pickupName, me.pickupName)) : pool;
+    if (pick.length === 1) { if (!out.names.includes(pick[0])) out.names.push(pick[0]); }
+    else if (pool.length) out.ambiguous.push(w);
+    else if (w.length >= 2 && w !== norm_(me.first)) out.unknown.push(w);
+  });
+  out.alone = /^(no|nope|nah|n)\b|\b(just me|only me|me only|by myself|just myself|alone|solo|no ?one|nobody|not with anyone|just one)\b/.test(t);
+  out.together = !out.alone && /^(y|ya|yah|yes+|yeah+|yea|yep|yup|ye|sure|correct)\b|\b(together|same (group|car)|we'?re (a group|all)|all of us|both of us|with (them|him|her|my friends?|friends))\b/.test(t);
+  return out;
+}
+/** Put rides a and b in one group (a told us). null = they're already in two different groups. */
+function joinGroup_(tx, a, b) {
+  tx.groups = tx.groups || [];
+  const ga = groupOf_(tx, a.id), gb = groupOf_(tx, b.id);
+  if (ga && gb && ga !== gb) return null;
+  let g = ga || gb;
+  if (!g) { g = { id: newId_(tx, 'g'), rides: [], said: {}, letter: '', wrote: {}, at: Date.now() }; tx.groups.push(g); }
+  [a.id, b.id].forEach(id => { if (!g.rides.includes(id)) g.rides.push(id); });
+  g.said[a.id] = true;
+  return g;
+}
+const who_ = r => `${r.first} (row ${r.row})`;
+/**
+ * Their text as an answer about riding together. asked = we asked / hinted and they haven't answered yet.
+ * Returns '' (not about groups: handle it as usual), 'used' (taken; a YES still confirms them) or 'done' (nothing else to do).
+ */
+function groupReply_(tx, rides, ride, rec, text, asked, tpl) {
+  const t = String(text || '').toLowerCase();
+  const mention = /\b(with|together|friends?|roommates?|group)\b/.test(t);
+  if (!asked && !mention) return '';
+  const cands = rides.filter(x => x.id !== ride.id && x.first && (!ride.phone10 || x.phone10 !== ride.phone10) &&
+    Math.abs(x.tsMs - ride.tsMs) <= GROUP_NAME_WINDOW_MIN * 60e3 && groupLive_(tx, rides, x));
+  const p = parseGroupReply_(text, cands, ride), now = Date.now(), body = String(text || '').slice(0, 300);
+  if (!asked && !p.names.length) return ''; // a mention we can't place: read as usual
+  if (p.alone && !p.names.length) {
+    rec.groupAnswer = { alone: true, at: now };
+    const g = groupOf_(tx, ride.id);
+    if (g) flag_(tx, GROUP_FLAG, ride.id, ride.phone10, body, `${who_(ride)} says they're riding alone, but ${g.rides.filter(id => id !== ride.id).map(id => who_(rides.find(x => x.id === id) || tx.rides[id] || { first: '?', row: '?' })).join(', ')} named them — check the group`);
+    return 'done';
+  }
+  let named = p.names;
+  if (!named.length && p.together) {
+    const same = groupMatches_(tx, rides, ride).filter(x => x.exact).map(x => x.ride);
+    if (same.length === 1) named = same;
+    else {
+      rec.groupAnswer = { together: true, at: now };
+      flag_(tx, GROUP_FLAG, ride.id, ride.phone10, body, `${who_(ride)} says they're riding with friends, but ${same.length ? `${same.length} rides could be theirs (${same.map(who_).join(', ')})` : 'no other ride has their route'} — ask who, or group them in the calling panel`);
+      return 'used';
+    }
+  }
+  if (p.ambiguous.length) flag_(tx, GROUP_FLAG, ride.id, ride.phone10, body, `${who_(ride)} named ${p.ambiguous.join(', ')} — more than one ride tonight has that name; group them by hand`);
+  if (!named.length) {
+    if (!asked) return '';
+    rec.groupAnswer = { unmatched: true, at: now };
+    if (!p.ambiguous.length) flag_(tx, GROUP_FLAG, ride.id, ride.phone10, body, `${who_(ride)} answered about riding together, but no ride requested near theirs has ${p.unknown.length ? 'the name ' + p.unknown.join(' / ') : 'a name they gave'} — check`);
+    return 'used';
+  }
+  rec.groupAnswer = { named: named.map(x => x.id), at: now };
+  const joined = [];
+  named.forEach(o => {
+    const ans = (tx.rides[o.id] || {}).groupAnswer;
+    if (ans && ans.alone) { flag_(tx, GROUP_FLAG, ride.id, ride.phone10, body, `${who_(ride)} says they're with ${who_(o)}, but ${o.first} said they're riding alone — not grouped`); return; }
+    const g = joinGroup_(tx, ride, o);
+    if (!g) { flag_(tx, GROUP_FLAG, ride.id, ride.phone10, body, `${who_(ride)} says they're with ${who_(o)}, but they're already in different groups — check`); return; }
+    joined.push(o);
+  });
+  if (p.unknown.length && joined.length) flag_(tx, GROUP_FLAG, ride.id, ride.phone10, body, `${who_(ride)} also named ${p.unknown.join(', ')}, who has no ride near theirs — grouped with ${joined.map(x => x.first).join(', ')} only`);
+  if (joined.length) {
+    const names = joined.map(x => x.first);
+    logRow_({ dir: 'note', phone: ride.phone10, rideId: ride.id, row: ride.row, name: ride.first, note: `Group: with ${joined.map(who_).join(', ')} (they named them)` });
+    // the caller sends it (or adds it to "you're confirmed" when this same text was their YES)
+    if (tpl.groupJoined) rec.groupJoinedText = fill_(tpl.groupJoined, ride, '', { names: names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0] });
+  }
+  return 'used';
+}
+/** For the dashboard: r's group (letter, the others, and whether each told us themselves). */
+function groupView_(tx, rides, id) {
+  const g = groupOf_(tx, id);
+  if (!g) return null;
+  const members = g.rides.map(rid => { const x = rides.find(y => y.id === rid) || {}; const rec = tx.rides[rid] || {}; return { id: rid, first: x.first || rec.first || '?', row: x.row || rec.row || '', said: !!g.said[rid] }; });
+  return { letter: g.letter || '', both: members.every(x => x.said), members };
+}
+
 // ---------- ETA log: what we predicted vs what happened (to refit etaMinutes_) ----------
 // A ride seen while still open, within 15 min of its request, gets a row with the model's inputs at that moment and
 // its prediction; the text's quoted range is added when one goes out; when the ride ends, its Call Time, Arrival, the
@@ -574,6 +712,8 @@ function classify_(text, awaiting) {
   if (whereEta_(t) || /\b(how long|how much longer|eta|when (will|is|are|do)|still coming|on (the|their|his|her) way|wait time|coming soon|how many min|how close|how far|any updates?|still waiting|estimated? time|time estimate)/.test(t)) return { intent: 'eta' };
   const okish = /^(ok(ay)?|k+|kk|sounds good|alright|aight|bet|cool|perfect|great|got it|will do)[.!]*$/.test(t);
   if (okish && awaiting) return { intent: 'yes' };
+  // "Okay - I'm with Sam", "ok sounds good, my friend is coming too" when we asked for YES: a YES, with more to read.
+  if (awaiting && /^(ok(ay)?|kk?|sounds good|alright|bet|cool|perfect|great|got it)\b/.test(t) && !/\?/.test(t)) return { intent: 'yes', extra: true };
   // "thanks", "thank you so much!", "ty!!", "appreciate it" — short only (a longer message after "thanks" is read by a person).
   if (okish || (/^(thanks?|thank (you|u)|ty|thx|tysm|appreciate (it|you))\b/.test(t) && t.length <= 30 && !/\?/.test(t)) || /^(👍|🙏|❤️|😊|🙂)+$/u.test(raw)) return { intent: 'thanks' };
   return { intent: 'other' };
@@ -689,6 +829,19 @@ function handleInbound_(tx, m, rides, wait, sh) {
     } catch (e) { flag_(tx, 'ADA?', ride.id, from10, inMsg.body, `${ride.first} (row ${ride.row}) says they don't need ADA, but the sheet couldn't be updated: ${e.message}`); }
     return;
   }
+  // 👥 Who they're riding with: an answer to our group question, or "Okay - I'm with Sam" (see groupReply_).
+  if (!['cancel', 'stop', 'start', 'eta'].includes(c.intent)) {
+    const asked = !!rec.groupAsk && !rec.groupAnswer && ms - rec.groupAsk.at < GROUP_LISTEN_MIN * 60e3;
+    const g = groupReply_(tx, rides, ride, rec, m.text, asked, tpl);
+    const joinedText = rec.groupJoinedText || ''; delete rec.groupJoinedText;
+    if (g === 'done' || (g === 'used' && (c.intent !== 'yes' || rec.state === 'confirmed'))) {
+      inMsg.intent = 'group';
+      if (joinedText) queue_(tx, ride, joinedText, 'groupJoined');
+      return;
+    }
+    if (joinedText) rec.groupJoinedLater = joinedText;
+    if (g === 'used') c.extra = false; // their YES still confirms them below; the rest of the text was about the group
+  }
   if (c.intent === 'yes') {
     const already = rec.state === 'confirmed';
     rec.state = 'confirmed'; rec.confirmedAt = rec.confirmedAt || ms;
@@ -696,7 +849,9 @@ function handleInbound_(tx, m, rides, wait, sh) {
       if (c.extra) flag_(tx, 'Reply', ride.id, from10, inMsg.body, `${ride.first} (row ${ride.row}): ${inMsg.body}`);
       return;
     }
-    queue_(tx, ride, fill_(rec.adaAsk ? tpl.confirmedAda : tpl.confirmed, ride, etaText_(wait, ride)), 'confirmed');
+    const groupLine = rec.groupJoinedLater || groupAskFor_(tx, rides, ride, rec, tpl); // 👥 others asked for the same pickup just now
+    delete rec.groupJoinedLater;
+    queue_(tx, ride, fill_(rec.adaAsk ? tpl.confirmedAda : tpl.confirmed, ride, etaText_(wait, ride)) + (groupLine ? ' ' + groupLine : ''), 'confirmed');
     delete rec.adaAsk;
     maybePoll_(tx, ride, rec); // 📋 poll (at most once ever)
     if (c.extra) flag_(tx, 'Confirmed + more', ride.id, from10, inMsg.body, `${ride.first} confirmed but wrote more — read it`);

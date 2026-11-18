@@ -8,7 +8,7 @@ Runs the SURE Walk texting server and the UT iPhone Bluetooth bridge on a Window
 2. Double-click **`INSTALL.cmd`**. It installs for you only (no admin) into `%LOCALAPPDATA%\Programs\SURE Walk Texts` and adds Start menu shortcuts. After that you can delete the downloaded folder. You can also skip installing and run everything straight from the folder.
 3. Pair the iPhone in **Settings ▸ Bluetooth & devices**. On the iPhone, go to **Settings ▸ Bluetooth ▸ (i)** next to the laptop and turn on **Show Notifications**.
 4. **Only one computer may run texting at a time.** Stop texting on the other dispatch PC first.
-5. Start menu ▸ **SURE Walk Texts**. The dashboard opens at http://127.0.0.1:8787. The first time, click the GroupMe pill and pick the sync chat (the same one the Excel texts panel uses). Auto-text starts off.
+5. Start menu ▸ **SURE Walk Texts**. The dashboard opens at http://127.0.0.1:8787. The first time, click the **Sync** pill on the dashboard, copy the laptop key, then in the Excel texts panel click **Connect ▸ This laptop** and paste it. Auto-text starts off.
 
 | Start menu / file | What it does |
 |---|---|
@@ -22,7 +22,7 @@ Runs the SURE Walk texting server and the UT iPhone Bluetooth bridge on a Window
 
 ## Updates
 
-Each version is a numbered **release** here (for example `v2026.11.18`), with the zip and its SHA-256 checksum. When the app starts, it checks for a newer release and asks in a popup. No answer within 30 seconds means "not now", and it never updates on its own. Updating downloads the release, checks the checksum, swaps in the new code and restarts texting. Your settings, GroupMe setup and message log stay as they are.
+Each version is a numbered **release** here (for example `v2026.11.18`), with the zip and its SHA-256 checksum. When the app starts, it checks for a newer release and asks in a popup. No answer within 30 seconds means "not now", and it never updates on its own. Updating downloads the release, checks the checksum, swaps in the new code and restarts texting. Your settings, sync setup and message log stay as they are.
 
 ## Calls
 

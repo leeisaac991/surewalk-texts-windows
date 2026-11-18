@@ -102,6 +102,7 @@ function stateView_(rides, wait) {
         eta: r.state === 'open' && !r.arrived ? etaText_(wait, r) : '', // this rider's wait (riders ahead of them in line)
         driver: r.driver, nav: r.nav, call: r.call, arrived: r.arrived, dispatcher: r.dispatcher, sheetState: r.state, dupOf: r.dupOf, offPickup: r.offPickup, dropoffOnly: r.dropoffOnly,
         state: rec.state || 'ready', note: rec.note || '', invalid: rec.state === 'flagged' && r.state === 'open' ? rec.invalid || (r.offPickup ? (dropoffOnly_(r.pickup) ? 'cx_dropoffonly' : 'cx_offcampus') : '') : '', textedAt: rec.textedAt || 0, confirmedAt: rec.confirmedAt || 0, lastInAt: rec.lastInAt || 0,
+        group: groupView_(tx, rides, r.id), // 👥 riding together (who named whom)
         // "No reply" only while they really haven't texted back since we texted them.
         noReply: rec.state === 'texted' && rec.textedAt && !(rec.lastInAt >= rec.textedAt - 60e3) && !((lastIn[r.phone10] || 0) >= rec.textedAt - 60e3) && now - rec.textedAt > noReplyMin * 60e3
           ? Math.round((now - rec.textedAt) / 60e3) : 0 };
