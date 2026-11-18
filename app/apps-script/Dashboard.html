@@ -1267,7 +1267,6 @@
     if (!sheet) return;
     sheet.classList.remove('shown');
     setTimeout(() => { sheet.hidden = true; }, 250);
-    try { localStorage.setItem('swt_first_time_done', '1'); } catch (e) {}
   }
   function finishOnboarding() {
     dismissOnboarding();
@@ -1292,9 +1291,7 @@
   function checkFirstTime() {
     try {
       if (window.SWT_TEST || location.search.indexOf('test=1') !== -1) return;
-      if (localStorage.getItem('swt_first_time_done') !== '1') {
-        openOnboarding(false);
-      }
+      openOnboarding(false);
     } catch (e) {}
   }
 
