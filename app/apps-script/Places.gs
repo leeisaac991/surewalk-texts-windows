@@ -65,9 +65,16 @@ const PLACES = {
   'The Sinclair':         ['sinclair', 'sinclaire', 'sinclair aps', 'sinclair 2710 nueces'],
   'Axis West':            ['axis west', 'axis west campus', 'axis west campus 2505 longview'],
   '24 Longview':          ['24 longview', '24longview'],
-  // 2616 Salado St = "Texan West Campus" / "The Texan" (riders also say "Texan 26"; a rider objected to that label).
-  'Texan West Campus':    ['texan west campus', 'texan west', 'texan wc', 'the texan', 'texan apartments', 'the texan west campus',
-                           'texan 26', 'texan26', '2616 salado', 'texan 26 2616 salado', 'texan 2616 salado'],
+  // Texan West Campus (2616 Salado St) and Texan 26 (1009 W 26th St) are two different West Campus apartments.
+  'Texan West Campus':    ['texan west campus', 'texan west', 'texan wc', 'the texan west campus', 'the texan west', 'the texan wc',
+                           'texan west campus apartments', '2616 salado', '2616 salado st', '2616 salado street', 'texan salado',
+                           'the texan on salado', 'the texan salado'],
+  'Texan 26':             ['texan 26', 'texan26', 'the texan 26', 'texan on 26th', 'texan on 26', 'texan 26th', 'the texan on 26th',
+                           'texan 26 apartments', '1009 w 26th', '1009 west 26th', '1009 w 26th st', '1009 west 26th st',
+                           '1009 w 26', '1009 26th', '1009 w 26th street', '1009 west 26th street'],
+  'Texan Pearl':          ['texan pearl', 'the texan pearl', 'texan pearl apartments', '2515 pearl', '2515 pearl st', '2515 pearl street'],
+  // Just "Texan" / "The Texan" could be Texan West Campus (2616 Salado) or Texan 26 (1009 W 26th):
+  'Texan (West Campus or 26?)': ['texan', 'the texan', 'texan apartments', 'the texan apartments', 'the texan apts', 'texan apts'],
   'Crest at Pearl':       ['crest at pearl'],
   'Union on 24th':        ['union on 24th', 'union on 24', 'union 24th', 'uniton 24th', 'union of 24'],
   'Union on San Antonio': ['union on san antonio', 'union san antonio'],
@@ -260,7 +267,8 @@ const ZONE_OF = {
   "regents west at 26th": 'West', "riograndecondominiums": 'West', "rise at west campus": 'West',
   "sangabrielsquare": 'West', "sanremo": 'West', "signature 1909": 'West', "skyloft": 'West', "sparq on rio": 'West',
   "standardat": 'West', "stoneleighcondominiumson2409leon": 'West', "taoscoop": 'West', "texan west campus": 'West',
-  "texanpearl": 'West', "the block on 23rd": 'West', "the block on 25th east": 'West',
+  "texan 26": 'West', "texan26": 'West', "texan (west campus or 26?)": 'West',
+  "texanpearl": 'West', "texan pearl": 'West', "the block on 23rd": 'West', "the block on 25th east": 'West',
   "the block on 25th west": 'West', "the block on 28th": 'West', "the block on leon": 'West', "the block on pearl": 'West', "the block on pearl north": 'West', "the block on pearl south": 'West',
   "the nine at rio": 'West', "the nine at west campus": 'West', "the rambler": 'West', "the sinclair": 'West',
   "the standard": 'West', "torre": 'West', "tradition on rio": 'West', "twenty two 15": 'West',
@@ -409,6 +417,11 @@ const PLACE_REWRITES = [
   { re: /^\s*(?:the\s+)?(?:ut\s+)?target(?:\s+(?:store|on\s+guad(?:alupe)?|at\s+guad(?:alupe)?|guad(?:alupe)?|dobie|at\s+dobie))?\s*[.!]*\s*$/i, to: 'Target (Dobie)' },
   { re: /^\s*(?:the\s+)?(?:alan\s+)?wright\s+(?:intramural\s+)?fields?\s*[.!]*\s*$|^\s*alan\s+wright\s*[.!]*\s*$/i, to: 'Whitaker Fields' }, // the name people know
   { re: /^\s*(?:durin|duran|durren|dureen)(?:\s+(?:hall|dorms?|residence hall))?\s*[.!]*\s*$/i, to: 'Duren' }, // misspellings of Duren
+  { re: /^\s*(?:the\s+)?texan\s*26(?:th)?(?:\s+apartments?|\s+apts?)?\s*[.!]*\s*$/i, to: 'Texan 26' },
+  { re: /^\s*(?:the\s+)?texan\s+(?:on\s+)?26(?:th)?\s*[.!]*\s*$/i, to: 'Texan 26' },
+  { re: /^\s*(?:the\s+)?texan\s+west(?:\s+campus)?(?:\s+apartments?|\s+apts?)?\s*[.!]*\s*$/i, to: 'Texan West Campus' },
+  { re: /^\s*(?:the\s+)?texan\s+wc\s*[.!]*\s*$/i, to: 'Texan West Campus' },
+  { re: /^\s*(?:the\s+)?texan(?:\s+apartments?|\s+apts?)?\s*[.!]*\s*$/i, to: 'Texan (West Campus or 26?)' },
 ];
 function placeRewrite_(text) {
   const t = String(text == null ? '' : text).trim(), w = PLACE_REWRITES.find(x => x.re.test(t));
