@@ -1,6 +1,11 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SURE Walk — Texting Laptop</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23bf5700'/%3E%3Cpath d='M7 9.5C7 8.12 8.12 7 9.5 7h13c1.38 0 2.5 1.12 2.5 2.5v9c0 1.38-1.12 2.5-2.5 2.5H13l-4.5 3.5v-3.5H9.5C8.12 21 7 19.88 7 18.5v-9z' fill='%23ffffff'/%3E%3Ccircle cx='11.5' cy='14' r='1.5' fill='%23bf5700'/%3E%3Ccircle cx='16' cy='14' r='1.5' fill='%23bf5700'/%3E%3Ccircle cx='20.5' cy='14' r='1.5' fill='%23bf5700'/%3E%3C/svg%3E">
+<link rel="alternate icon" href="/favicon.ico">
 <base target="_top">
 <script>
   // Saved theme + accent before the page draws (same as the dispatch panel), so it never flashes the default.
@@ -326,17 +331,26 @@
   .acc.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent); }
   .closex { width: 30px; height: 30px; padding: 0; border-radius: 50%; color: var(--label2); }
   code.key { font-size: 12px; word-break: break-all; background: var(--fill); padding: 4px 6px; border-radius: 6px; }
+
+  /* Texting laptop branding and onboarding walkthrough */
+  .laptop-pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--accent-bg); color: var(--accent); margin-left: 8px; vertical-align: middle; }
+  .help-pill { background: var(--fill); color: var(--accent); font-weight: 600; }
+  .ob-card { width: min(500px, 100%); padding: 22px 24px; }
+  .ob-h { border-bottom: .5px solid var(--sep); padding-bottom: 8px; }
+  .ob-badge { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); background: var(--accent-bg); padding: 2px 7px; border-radius: 999px; }
+  .ob-box { background: var(--card); border: 1px solid var(--sep); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
 </style>
 </head>
 <body>
 <div id="callHud" role="status" aria-live="polite" hidden></div>
 <div class="wrap">
   <div class="top">
-    <span class="brand"><span id="brandLogo" class="brand-logo"></span><span class="brand-t">Texts</span></span>
+    <span class="brand" title="SURE Walk Texting Laptop"><span id="brandLogo" class="brand-logo"></span><span class="brand-t">Texts</span><span class="laptop-pill" title="This laptop runs the texting server and phone bridge">💻 Texting Laptop</span></span>
     <button id="phonePill" class="pill phone" onclick="openSettings('bridge')" title="Bridge + phone status" aria-label="Phone status"></button>
     <button id="autoBtn" class="pill" onclick="toggleSetting('TX_AUTOTEXT')" title="Text new riders automatically"></button>
     <span id="etaChip" class="pill info" title="What riders are told: tonight's average wait (Arrival − Call)"></span>
     <span class="spacer"></span>
+    <button class="pill help-pill" onclick="openOnboarding(true)" title="First time using this texting laptop? Click for a walkthrough">❓ First time?</button>
     <button class="pill" onclick="openMetrics()" title="How riders respond to the texts">📊 Metrics</button>
     <button class="pill" onclick="openSettings()">⚙ Settings</button>
     <button class="pill" onclick="refresh(true)" title="Refresh">↻</button>
@@ -373,6 +387,78 @@
     <div class="set-main">
       <nav class="set-nav" aria-label="Settings categories" id="setNav"></nav>
       <div class="set-body" id="setBody"></div>
+    </div>
+  </div>
+</div>
+
+<div id="onboardSheet" class="ask-bg" hidden onclick="if (event.target === this) dismissOnboarding()">
+  <div class="ask-card ob-card" role="dialog" aria-modal="true" aria-label="First time walkthrough">
+    <div id="obStep0">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+        <span style="font-size:28px">💻</span>
+        <h3 style="margin:0;font-size:19px">SURE Walk Texting Laptop</h3>
+      </div>
+      <p style="font-size:15px;font-weight:600;margin:12px 0 6px">Is this your first time using this texting laptop?</p>
+      <p class="muted" style="margin:0 0 16px;line-height:1.45;font-size:13.5px">
+        This laptop runs the automated texting server and iPhone Bluetooth bridge for tonight's rides. We can walk you through the 3 quick steps to get ready, or you can jump straight in.
+      </p>
+      <div class="ask-btns" style="margin-top:18px">
+        <button onclick="dismissOnboarding()">No, I'm ready to go</button>
+        <button class="primary" onclick="setObStep(1)">Yes, walk me through →</button>
+      </div>
+    </div>
+    <div id="obStep1" hidden>
+      <div class="ob-h">
+        <span class="ob-badge">Step 1 of 3</span>
+        <h3 style="margin:4px 0 0;font-size:18px">📱 iPhone Bluetooth Connection</h3>
+      </div>
+      <p style="font-size:13.5px;line-height:1.45;margin:10px 0">
+        Make sure the SURE Walk iPhone has <b>Bluetooth turned on</b> and is nearby.
+      </p>
+      <div class="ob-box">
+        <div id="obBridgeStatus" style="font-size:13px;font-weight:600">Checking bridge…</div>
+        <div class="muted" style="font-size:12px;margin-top:3px">Windows Phone Link runs in the background. The phone pill in the top bar turns green when connected.</div>
+      </div>
+      <div class="ask-btns" style="margin-top:18px">
+        <button onclick="setObStep(0)">‹ Back</button>
+        <button class="primary" onclick="setObStep(2)">Next: Excel Sync →</button>
+      </div>
+    </div>
+    <div id="obStep2" hidden>
+      <div class="ob-h">
+        <span class="ob-badge">Step 2 of 3</span>
+        <h3 style="margin:4px 0 0;font-size:18px">📊 Excel Add-in (Rides Sync)</h3>
+      </div>
+      <p style="font-size:13.5px;line-height:1.45;margin:10px 0">
+        Open tonight's rides workbook in Excel and click the <b>SURE Walk Texts</b> add-in.
+      </p>
+      <div class="ob-box">
+        <div style="font-size:13px;font-weight:600">Direct Laptop Connection</div>
+        <div class="muted" style="font-size:12px;margin-top:3px">The add-in goes straight to Auto-text and connects to this laptop at <code style="background:var(--fill);padding:2px 5px;border-radius:4px">127.0.0.1:8787</code>. No GroupMe setup needed — all texts stay on this laptop!</div>
+      </div>
+      <div class="ask-btns" style="margin-top:18px">
+        <button onclick="setObStep(1)">‹ Back</button>
+        <button class="primary" onclick="setObStep(3)">Next: Auto-Texting →</button>
+      </div>
+    </div>
+    <div id="obStep3" hidden>
+      <div class="ob-h">
+        <span class="ob-badge">Step 3 of 3</span>
+        <h3 style="margin:4px 0 0;font-size:18px">✨ You're Ready to Text!</h3>
+      </div>
+      <p style="font-size:13.5px;line-height:1.45;margin:10px 0">
+        When dispatch logs new rides in Excel, riders receive automated confirmation texts.
+      </p>
+      <ul style="font-size:13px;line-height:1.5;margin:0 0 12px;padding-left:20px;color:var(--text)">
+        <li>Riders reply <b>YES</b> to confirm or <b>CANCEL</b> to cancel.</li>
+        <li>Statuses update live in the Excel sheet and in this dashboard.</li>
+        <li>You can view conversation feeds, send custom replies, or add walk-in rides anytime.</li>
+      </ul>
+      <p class="muted" style="font-size:12px;margin:0 0 16px">You can reopen this walkthrough anytime by clicking <b>❓ First time?</b> in the top bar.</p>
+      <div class="ask-btns">
+        <button onclick="setObStep(2)">‹ Back</button>
+        <button class="primary" onclick="finishOnboarding()">Finish & Start Texting</button>
+      </div>
     </div>
   </div>
 </div>
@@ -528,6 +614,7 @@
     $('autoBtn').innerHTML = `<span class="sw ${state.autoText ? 'on' : ''}"></span>Auto-text`;
     $('autoBtn').disabled = !state.texting;
     $('etaChip').textContent = `⏱ ETA ${state.eta.replace(/^about /, '~')}`;
+    if (typeof updateObBridge === 'function' && $('onboardSheet') && !$('onboardSheet').hidden) updateObBridge();
   }
   function renderBanners() {
     const bad = Object.keys(state.versions).filter(f => state.versions[f] !== PAGE_VERSION);
@@ -1157,14 +1244,60 @@
     finally { btn.disabled = false; btn.textContent = 'Send poll'; }
   }
 
+  /* ---------- First-time onboarding walkthrough ---------- */
+  function openOnboarding(forceStep0) {
+    const sheet = $('onboardSheet');
+    if (!sheet) return;
+    setObStep(0);
+    sheet.hidden = false;
+    requestAnimationFrame(() => sheet.classList.add('shown'));
+  }
+  function dismissOnboarding() {
+    const sheet = $('onboardSheet');
+    if (!sheet) return;
+    sheet.classList.remove('shown');
+    setTimeout(() => { sheet.hidden = true; }, 250);
+    try { localStorage.setItem('swt_first_time_done', '1'); } catch (e) {}
+  }
+  function finishOnboarding() {
+    dismissOnboarding();
+    toast('Texting laptop ready!');
+  }
+  function setObStep(step) {
+    [0, 1, 2, 3].forEach(s => {
+      const el = $('obStep' + s);
+      if (el) el.hidden = (s !== step);
+    });
+    if (step === 1) updateObBridge();
+  }
+  function updateObBridge() {
+    const el = $('obBridgeStatus');
+    if (!el) return;
+    const b = state && state.bridge, age = b ? Date.now() - b.at : Infinity;
+    if (!b) el.innerHTML = '<span style="color:var(--red)">⚠ Phone bridge not connected yet</span>';
+    else if (age > 30000) el.innerHTML = '<span style="color:var(--amber)">⚠ Phone bridge offline (last seen ' + ago(b.at) + ')</span>';
+    else if (!b.connected) el.innerHTML = '<span style="color:var(--amber)">⚠ Phone disconnected from Phone Link</span>';
+    else el.innerHTML = '<span style="color:var(--green)">✓ iPhone connected and ready</span>';
+  }
+  function checkFirstTime() {
+    try {
+      if (window.SWT_TEST || location.search.indexOf('test=1') !== -1) return;
+      if (localStorage.getItem('swt_first_time_done') !== '1') {
+        openOnboarding(false);
+      }
+    } catch (e) {}
+  }
+
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape' || (window.ddOpen && ddOpen())) return;
-    if (!$('askSheet').hidden) answer(false);
+    if ($('onboardSheet') && !$('onboardSheet').hidden) dismissOnboarding();
+    else if (!$('askSheet').hidden) answer(false);
     else if (!$('settingsSheet').hidden) closeSettings();
     else if (!$('metricsSheet').hidden) closeMetrics();
   });
   if (prefs.theme && prefs.theme !== 'system') document.documentElement.dataset.theme = prefs.theme;
   refresh(true);
+  checkFirstTime();
 </script>
 <style>
   /* Our own dropdown list (instead of Chrome's white one): same card, colors and type as the rest of the panel */
