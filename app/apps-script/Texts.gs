@@ -693,7 +693,7 @@ function handleInbound_(tx, m, rides, wait, sh) {
     const already = rec.state === 'confirmed';
     rec.state = 'confirmed'; rec.confirmedAt = rec.confirmedAt || ms;
     if (already) { // "Sure" / "ok" to something else after they confirmed: no second "you're confirmed!"
-      if (c.extra) flag_(tx, 'Reply', ride.id, from10, inMsg.body, `${ride.first} (row ${ride.row}, ${ride.pickupName} → ${ride.dropoffName})`);
+      if (c.extra) flag_(tx, 'Reply', ride.id, from10, inMsg.body, `${ride.first} (row ${ride.row}): ${inMsg.body}`);
       return;
     }
     queue_(tx, ride, fill_(rec.adaAsk ? tpl.confirmedAda : tpl.confirmed, ride, etaText_(wait, ride)), 'confirmed');
@@ -716,7 +716,7 @@ function handleInbound_(tx, m, rides, wait, sh) {
   if (c.intent === 'no') { queue_(tx, ride, fill_(tpl.askCancel, ride), 'askCancel'); return; }
   if (c.intent === 'eta') { queue_(tx, ride, fill_(tpl.eta, ride, etaText_(wait, ride)), 'eta'); return; }
   if (c.intent === 'thanks') return;
-  flag_(tx, 'Reply', ride.id, from10, inMsg.body, `${ride.first} (row ${ride.row}, ${ride.pickupName} → ${ride.dropoffName})`);
+  flag_(tx, 'Reply', ride.id, from10, inMsg.body, `${ride.first} (row ${ride.row}): ${inMsg.body}`);
 }
 
 // ---------- 📋 Rider poll ----------

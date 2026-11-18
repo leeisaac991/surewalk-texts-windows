@@ -533,7 +533,14 @@
   // "Off-campus pickup: we only pick up on campus": the flag's kind + its note, without the name / row (the row shows
   // them) and without the sentence that repeats the button ("Review the cancel text to cancel it and tell them").
   function inboxReason(x) {
-    const n = String(x.note || '').replace(/\s*Review the cancel text[^.]*\.?/i, '').replace(/^[^(]{1,60}\(row \d+\)\s*(?:—\s*)?/, '').replace(/\.\s*$/, '').trim();
+    if (x.kind === 'Reply' || /more$/i.test(x.kind)) {
+      const msg = String(x.text || '').replace(/[\r\n]+/g, ' ').trim();
+      const snippet = msg.length > 60 ? msg.slice(0, 58) + '…' : msg;
+      return snippet ? `${x.kind}: “${snippet}”` : x.kind;
+    }
+    const n = String(x.note || '').replace(/\s*Review the cancel text[^.]*\.?/i, '')
+      .replace(/^[^(]{1,60}\(row \d+(?:,\s*[^)]*)?\)\s*(?:[:—\s])?\s*/, '')
+      .replace(/\.\s*$/, '').trim();
     return n ? `${x.kind}: ${n}` : x.kind;
   }
   function renderInbox() {
