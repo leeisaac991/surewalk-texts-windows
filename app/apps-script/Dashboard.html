@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<script>
+  // Saved theme + accent before the page draws (same as the dispatch panel), so it never flashes the default.
+  try {
+    var p = JSON.parse(localStorage.getItem('textsPrefs') || 'null');
+    if (p && (p.theme === 'light' || p.theme === 'dark')) document.documentElement.dataset.theme = p.theme;
+    if (p && p.accent) { document.documentElement.style.setProperty('--accent-l', p.accent.l); document.documentElement.style.setProperty('--accent-d', p.accent.d); }
+  } catch (e) { /* storage blocked: defaults */ }
+</script>
+<style>
+  /* Same design system as the dispatch panel (iOS look, burnt orange accent, light/dark). */
+  :root {
+    --bg: #f2f2f7; --card: #ffffff; --card2: #f9f9fb; --sep: rgba(60,60,67,.18); --fill: rgba(118,118,128,.12);
+    --text: #000000; --muted: #8e8e93; --label2: rgba(60,60,67,.6);
+    --accent-l: #bf5700; --accent-d: #d9661f;
+    --m-yes: #2a78d6; --m-cancel: #eb6834; --m-other: #1baf7a; --m-none: #c7c7cc; /* metrics outcomes (validated palette) */
+    --accent: var(--accent-l); --accent-bg: color-mix(in srgb, var(--accent-l) 12%, transparent); --green: #34c759; --green-text: #248a3d; --green-bg: rgba(52,199,89,.15);
+    --blue: #007aff; --blue-bg: rgba(0,122,255,.12); --amber: #c93400; --amber-bg: rgba(255,149,0,.15); --red: #ff3b30; --red-bg: rgba(255,59,48,.12);
+    --bar: rgba(242,242,247,.82); --shadow: 0 1px 2px rgba(0,0,0,.04); color-scheme: light; --ios: cubic-bezier(.32, .72, 0, 1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000; --card: #1c1c1e; --card2: #2c2c2e; --sep: rgba(84,84,88,.6); --fill: rgba(118,118,128,.24);
+      --text: #ffffff; --muted: #8e8e93; --label2: rgba(235,235,245,.6);
+      --m-yes: #3987e5; --m-cancel: #d95926; --m-other: #199e70; --m-none: #48484a;
+      --accent: var(--accent-d); --accent-bg: color-mix(in srgb, var(--accent-d) 22%, transparent); --green: #30d158; --green-text: #30d158; --green-bg: rgba(48,209,88,.18);
+      --blue: #0a84ff; --blue-bg: rgba(10,132,255,.2); --amber: #ff9f0a; --amber-bg: rgba(255,159,10,.18); --red: #ff453a; --red-bg: rgba(255,69,58,.18);
+      --bar: rgba(0,0,0,.72); --shadow: none; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+      --bg: #000000; --card: #1c1c1e; --card2: #2c2c2e; --sep: rgba(84,84,88,.6); --fill: rgba(118,118,128,.24);
+      --text: #ffffff; --muted: #8e8e93; --label2: rgba(235,235,245,.6);
+      --m-yes: #3987e5; --m-cancel: #d95926; --m-other: #199e70; --m-none: #48484a;
+      --accent: var(--accent-d); --accent-bg: color-mix(in srgb, var(--accent-d) 22%, transparent); --green: #30d158; --green-text: #30d158; --green-bg: rgba(48,209,88,.18);
+      --blue: #0a84ff; --blue-bg: rgba(10,132,255,.2); --amber: #ff9f0a; --amber-bg: rgba(255,159,10,.18); --red: #ff453a; --red-bg: rgba(255,69,58,.18);
+      --bar: rgba(0,0,0,.72); --shadow: none; color-scheme: dark;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased;
+         font: 15px/1.33 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif; letter-spacing: -.01em; }
+  .wrap { max-width: 1300px; margin: 0 auto; padding: 0 16px 40px; }
+  button { font: inherit; font-size: 15px; cursor: pointer; border: 0; background: var(--fill); color: var(--accent);
+           border-radius: 999px; padding: 6px 14px; font-weight: 500; transition: transform .18s var(--ios), opacity .18s ease, background-color .25s ease; }
+  button:active:not(:disabled) { transform: scale(.95); opacity: .8; }
+  button:disabled { opacity: .35; cursor: default; }
+  button.primary:disabled, .send:disabled { background: var(--muted); color: #fff; opacity: .6; }
+  /* Feedback for every click: the pressed button shows a spinner (and can't be pressed again) until the server answers. */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  button.working { pointer-events: none; opacity: .75; }
+  button.working::before { content: ''; display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px;
+    border: 2px solid rgba(127,127,127,.35); border-top-color: currentColor; border-radius: 50%; animation: spin .7s linear infinite; }
+  .send.working::before, .closex.working::before { margin-right: 0; }
+  #loadbar { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 70; overflow: hidden; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #loadbar::after { content: ''; position: absolute; top: 0; bottom: 0; width: 35%; background: var(--accent); border-radius: 3px; animation: loadslide 1.1s var(--ios) infinite; }
+  @keyframes loadslide { from { left: -35%; } to { left: 100%; } }
+  body.loading #loadbar { opacity: 1; }
+  body.loading { cursor: progress; }
+  .msg.me.saving .msg-b { opacity: .6; }
+  button.primary { background: var(--accent); color: #fff; font-weight: 600; }
+  button.link { background: none; padding: 2px 4px; font-weight: 400; }
+  button.danger { color: var(--red); }
+  input, select, textarea { font: inherit; font-size: 15px; color: var(--text); border: 0; border-radius: 10px; padding: 8px 10px;
+                  background: var(--fill); outline: none; }
+  input:focus, textarea:focus { box-shadow: 0 0 0 3px var(--accent-bg); }
+  textarea { resize: vertical; width: 100%; line-height: 1.35; }
+  .muted { color: var(--muted); font-size: 13px; }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { *, ::before, ::after { transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+  @keyframes appear { from { opacity: 0; transform: translateY(-6px) scale(.98); } to { opacity: 1; transform: none; } }
+
+  /* Top bar */
+  .top { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 0 -16px; padding: 10px 16px;
+         background: var(--bar); -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px); border-bottom: .5px solid var(--sep); }
+  .brand { display: inline-flex; align-items: center; gap: 8px; margin-right: 6px; }
+  .brand-logo { display: inline-flex; color: var(--accent); }
+  .brand-logo svg { height: 40px; width: auto; display: block; }
+  .brand-t { font-weight: 700; font-size: 22px; color: var(--accent); letter-spacing: .01em; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; color: var(--text); font-weight: 500; }
+  .pill.info { background: var(--green-bg); color: var(--green-text); cursor: default; border-radius: 999px; }
+  .pill .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .pill.ok .dot { background: var(--green); } .pill.warn .dot { background: var(--orange, #ff9500); } .pill.bad .dot { background: var(--red); }
+  .pill.bad { background: var(--red-bg); }
+  .pill.phone { position: relative; padding: 7px 11px; }
+  .pill.phone svg { width: 20px; height: 20px; display: block; }
+  .pill.phone.ok { color: var(--green); } .pill.phone.warn { color: var(--orange, #ff9500); } .pill.phone.bad { color: var(--red); }
+  .pill.phone .badge { position: absolute; top: -4px; right: -4px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--accent-l, #bf5700); color: #fff; font-size: 11px; font-weight: 700; line-height: 17px; text-align: center; }
+  .spacer { flex: 1; }
+  .sw { position: relative; width: 38px; height: 23px; border-radius: 999px; background: var(--fill); transition: background .2s; flex: none; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 19px; height: 19px; border-radius: 50%; background: #fff;
+               box-shadow: 0 2px 4px rgba(0,0,0,.2); transition: transform .25s var(--ios); }
+  .sw.on { background: var(--green); } .sw.on::after { transform: translateX(15px); }
+
+  .alert { background: var(--red-bg); border-radius: 10px; padding: 9px 12px; margin: 10px 0 0; font-size: 14px; }
+  .alert.warn { background: var(--amber-bg); }
+
+  /* Needs a look: same header and rider rows as the Tonight list, no box around it */
+  .inbox { margin-top: 14px; }
+  .inbox .col-h .link { margin-left: auto; text-transform: none; font-size: 14px; }
+  .inbox .rlist { display: flex; flex-direction: column; gap: 4px; }
+  .ib-row { display: flex; align-items: center; gap: 8px; }
+  .ib-row > .rrow { flex: 1; min-width: 0; }
+  .ib-row .ib-acts { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; gap: 6px; align-items: center; }
+  .ib-card { position: relative; }
+  .ib-card .rrow { padding-right: 300px; }
+  @media (max-width: 700px) { .ib-card .rrow { padding-right: 14px; } .ib-row .ib-acts { position: static; transform: none; padding: 0 12px 10px 22px; } .ib-card { background: var(--card); border-radius: 12px; } }
+  .ib-acts button { padding: 5px 12px; font-size: 14px; } .ib-acts button.ok { color: var(--green-text); font-weight: 700; }
+  .ib-row.new { animation: appear .4s var(--ios) both; } /* only the first time it shows */
+  .count { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--fill); color: var(--label2); font-size: 12px; text-align: center; }
+
+  /* Two columns: riders | conversation */
+  .main { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; gap: 14px; margin-top: 14px; align-items: start; }
+  @media (max-width: 860px) { .main { grid-template-columns: 1fr; } }
+  .col-h { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; margin: 4px 4px 8px; }
+  /* Search: big, first in the column; Ctrl+K / ⌘K focuses it from anywhere */
+  .sbar { display: flex; align-items: center; gap: 10px; height: 50px; padding: 0 12px 0 14px; margin-bottom: 12px; border-radius: 14px;
+          background: var(--card); border: 1.5px solid var(--sep); box-shadow: var(--shadow); cursor: text; }
+  .sbar:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+  .sbar svg { width: 20px; height: 20px; flex: none; color: var(--accent); }
+  .sbar input { flex: 1; min-width: 0; height: 100%; padding: 0; background: transparent; border-radius: 0; font-size: 17px; font-weight: 500; }
+  .sbar input:focus { box-shadow: none; }
+  .sbar input::placeholder { color: var(--muted); font-weight: 400; }
+  .kbd { flex: none; font-size: 11.5px; font-weight: 600; color: var(--muted); border: 1px solid var(--sep); border-radius: 6px; padding: 2px 6px; white-space: nowrap; }
+  .seg { display: inline-flex; background: var(--fill); border-radius: 9px; padding: 2px; margin: 0 0 9px; flex-wrap: wrap; }
+  .seg button { background: none; color: var(--text); border-radius: 7px; padding: 5px 12px; font-size: 13px; font-weight: 500; }
+  .seg button.on { background: var(--card); font-weight: 600; box-shadow: 0 3px 8px rgba(0,0,0,.12), 0 1px 1px rgba(0,0,0,.04); }
+  /* Rider rows: one rounded card each (a real button), 3 lines, a status stripe on the left */
+  .list { display: flex; flex-direction: column; gap: 4px; max-height: calc(100vh - 290px); overflow-y: auto; padding: 1px; }
+  .rrow { position: relative; display: flex; gap: 10px; align-items: flex-start; width: 100%; padding: 10px 14px 10px 22px; text-align: left; font: inherit; color: var(--text);
+          background: var(--card); border: 1.5px solid transparent; border-radius: 12px; box-shadow: var(--shadow); cursor: pointer; transition: background-color .15s; }
+  .rrow:active:not(:disabled) { transform: none; opacity: 1; }
+  .rrow:hover { background: var(--card2); }
+  .rrow.sel { background: var(--accent-bg); border-color: var(--accent); }
+  .rrow:focus-visible { outline: 0; box-shadow: 0 0 0 3px var(--accent-bg); border-color: var(--accent); }
+  .rrow::before { content: ''; position: absolute; left: 8px; top: 10px; bottom: 10px; width: 4px; border-radius: 4px; background: transparent; }
+  .rrow.k-red::before { background: var(--red); } .rrow.k-amber::before { background: #ff9500; } .rrow.k-blue::before { background: var(--blue); }
+  .rrow.k-green::before { background: var(--green); } .rrow.k-gray::before { background: var(--muted); }
+  .rrow.done { background: transparent; box-shadow: none; }
+  .rrow.done:hover { background: var(--card2); } .rrow.done.sel { background: var(--accent-bg); }
+  .rrow.done .rn, .rrow.done .route { color: var(--muted); }
+  .rrow.done .tx-ic { opacity: .6; }
+  .rrow .rm { flex: 1; min-width: 0; }
+  .rl1 { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .rn { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .route { color: var(--text); font-size: 15px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+  .rrow .route { color: var(--text); }
+  .arrow { color: var(--muted); margin: 0 4px; }
+  .meta { font-size: 12.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .note { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .unread { width: 9px; height: 9px; border-radius: 50%; background: var(--blue); flex: none; }
+  /* Chips: one style everywhere, soft tinted pills */
+  .chip { display: inline-block; flex: none; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 700; white-space: nowrap; background: var(--fill); color: var(--label2); }
+  .chip.ready { background: var(--blue-bg); color: var(--blue); } .chip.queued, .chip.texted { background: var(--blue-bg); color: var(--blue); }
+  .chip.noreply, .chip.flagged { background: var(--amber-bg); color: var(--amber); } .chip.confirmed { background: var(--green-bg); color: var(--green-text); }
+  .chip.cancelled { background: var(--fill); color: var(--label2); } .chip.duplicate { background: var(--red-bg); color: var(--red); } .chip.optedout { background: var(--fill); color: var(--muted); }
+  .chip.picked { background: var(--accent-bg); color: var(--accent); }
+  .chip.assigned { background: var(--fill); color: var(--text); }
+  .chip.invalid { background: var(--red-bg); color: var(--red); }
+  /* How they confirmed: replied YES by text (a green speech bubble + check, no circle) */
+  .tx-ic { flex: none; display: inline-grid; place-items: center; color: var(--green-text); }
+  .tx-ic svg { width: 18px; height: 18px; display: block; }
+  .invalid-box { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; padding: 9px 12px; border-radius: 10px; background: var(--red-bg); font-size: 14px; }
+  .invalid-box span { flex: 1; min-width: 200px; }
+  .ask-card:has(textarea) { width: min(560px, 100%); }
+
+  /* Conversation */
+  .convo { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); display: flex; flex-direction: column; min-height: 420px; max-height: calc(100vh - 150px); }
+  .cv-h { padding: 12px 16px; border-bottom: .5px solid var(--sep); }
+  .cv-h h2 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .cv-sub { color: var(--label2); font-size: 14px; margin-top: 2px; }
+  .cv-act { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .feed { flex: 1; overflow-y: auto; padding: 12px 14px; background: var(--bg); }
+  .empty { color: var(--muted); text-align: center; padding: 40px 10px; }
+  .msg { display: flex; flex-direction: column; align-items: flex-start; margin: 6px 0; }
+  .msg.new { animation: appear .35s var(--ios) both; } /* only when it first appears */
+  .msg.me { align-items: flex-end; }
+  /* a reaction sits on the corner of the message it reacts to (like iMessage) */
+  .msg.has-rx { margin-top: 16px; }
+  .msg-b { position: relative; }
+  .rx-badge { position: absolute; top: -14px; right: -6px; background: var(--card2); border: 2px solid var(--bg); border-radius: 999px; padding: 1px 6px; font-size: 14px; line-height: 1.3; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .msg.me .rx-badge { right: auto; left: -6px; }
+  .rx-line { text-align: center; font-size: 12px; color: var(--muted); margin: 6px 0; }
+  .msg-b { max-width: 78%; padding: 8px 12px; border-radius: 18px; background: var(--card); font-size: 15px; line-height: 1.3; white-space: pre-wrap; word-wrap: break-word; }
+  .msg.me .msg-b { background: var(--accent); color: #fff; }
+  .msg.me.failed .msg-b { background: var(--red); } .msg.me.unknown .msg-b { background: var(--amber); }
+  .msg.me.queued .msg-b, .msg.me.sending .msg-b { opacity: .7; }
+  .msg-t { font-size: 11px; color: var(--muted); margin: 2px 8px 0; }
+  .msg-t button { font-size: 11px; padding: 1px 8px; margin-left: 4px; }
+  .intent { font-size: 10px; font-weight: 700; text-transform: uppercase; border-radius: 5px; padding: 1px 5px; background: var(--fill); color: var(--label2); margin-left: 4px; }
+  .quick { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px 0; border-top: .5px solid var(--sep); }
+  .quick button { font-size: 13px; padding: 4px 10px; }
+  .composer { display: flex; gap: 8px; padding: 8px 12px 12px; align-items: flex-end; }
+  .composer textarea { min-height: 38px; max-height: 140px; border-radius: 18px; padding: 9px 14px; resize: none; }
+  .send { width: 36px; height: 36px; border-radius: 50%; padding: 0; background: var(--accent); color: #fff; font-size: 18px; flex: none; }
+
+  /* Toast + dialogs + settings (same look as the dispatch panel) */
+  .toast { position: fixed; left: 50%; top: 14px; z-index: 45; padding: 10px 18px; border-radius: 14px; background: #1f6f3a; color: #fff;
+           font-weight: 600; box-shadow: 0 10px 30px rgba(0,0,0,.35); transform: translate(-50%, -20px); opacity: 0; transition: transform .4s var(--ios), opacity .25s; max-width: 90vw; }
+  .toast.shown { transform: translate(-50%, 0); opacity: 1; } .toast.warn { background: #a35a00; } .toast.err { background: #b3261e; }
+  .ask-bg { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,0); transition: background-color .3s; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .ask-bg.shown { background: rgba(0,0,0,.35); }
+  .ask-card, .set-card { background: var(--bg); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.3); transform: scale(.94); opacity: 0; transition: transform .45s var(--ios), opacity .25s; }
+  .ask-bg.shown .ask-card, .ask-bg.shown .set-card { transform: none; opacity: 1; }
+  .ask-card { width: min(420px, 100%); padding: 18px; } .ask-card p { margin: 0 0 14px; }
+  .ask-btns { display: flex; gap: 8px; justify-content: flex-end; }
+  .set-card { width: min(820px, 100%); height: min(600px, 88vh); display: flex; flex-direction: column; overflow: hidden; }
+  .set-h { display: flex; align-items: center; padding: 14px 16px 10px; font-size: 17px; background: var(--bar); border-bottom: .5px solid var(--sep); }
+  .set-h b { flex: 1; text-align: left; margin-left: 0; display: inline-flex; align-items: center; gap: 8px; }
+  .set-main { flex: 1; min-height: 0; display: flex; }
+  .set-nav { width: 210px; flex: none; display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; background: var(--bg); border-right: .5px solid var(--sep); }
+  .set-nav button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 9px 10px; border-radius: 8px;
+    background: none; color: var(--text); font-size: 14px; font-weight: 500; min-height: 40px; border: 0; cursor: pointer; font-family: inherit; }
+  .set-nav button:hover { background: var(--fill); }
+  .set-nav button.on { background: var(--accent-bg); color: var(--accent); }
+  .set-nav .set-ver { margin-top: auto; padding: 8px 10px 2px; text-align: left; font-size: 12px; color: var(--muted); border-top: .5px solid var(--sep); }
+  .set-body { flex: 1; min-width: 0; background: var(--card2); padding: 6px 18px 22px; overflow-y: auto; }
+  .set-pane[hidden] { display: none; }
+  .set-pane h3 { font-size: 17px; margin: 14px 2px 10px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  @media (max-width: 640px) {
+    .set-card { height: auto; max-height: 92vh; }
+    .set-main { flex-direction: column; }
+    .set-nav { width: auto; flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: .5px solid var(--sep); padding: 6px 8px; }
+    .set-nav button { width: auto; flex: none; white-space: nowrap; }
+    .set-nav .set-ver { display: none; }
+    .set-body { overflow-y: auto; }
+  }
+
+  /* Rider header: editable name + place boxes (click to edit in place), Call pill */
+  .cv-l1 { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .cv-l1 h2 { margin: 0; font-size: 22px; display: flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+  .ed-name { padding: 0 6px; margin-left: -7.5px; border: 1.5px solid transparent; border-radius: 8px; background: transparent; font: inherit; font-size: 22px; font-weight: 700;
+             color: var(--text); cursor: text; line-height: 1.3; }
+  .ed-name:hover { border-color: var(--accent); background: transparent; }
+  .ed-name:active:not(:disabled) { transform: none; opacity: 1; }
+  label.ed-name { display: inline-block; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+  label.ed-name input { font: inherit; font-size: 22px; font-weight: 700; color: var(--text); padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; width: auto; max-width: 60vw; line-height: 1.3; }
+  .cv-boxes { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, .8fr); align-items: stretch; gap: 10px; margin-top: 12px; }
+  .cv-boxes > .arrow { align-self: center; font-size: 20px; margin: 0; }
+  @media (max-width: 560px) { .cv-boxes { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); } .cv-boxes .cv-box.info { grid-column: 1 / -1; } }
+  .cv-box { display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; padding: 10px 14px; border-radius: 12px; text-align: left; font: inherit;
+            color: var(--text); background: var(--card2); border: 1.5px solid transparent; cursor: text; }
+  button.cv-box:hover { border-color: var(--accent); background: var(--card2); }
+  button.cv-box:active:not(:disabled) { transform: none; opacity: 1; }
+  .cv-box.do { background: var(--accent-bg); border-color: var(--accent); }
+  .cv-box.do .cv-box-lbl { color: var(--text); }
+  .cv-box.info { cursor: default; }
+  .cv-box.editing { border-color: var(--accent); }
+  .cv-box.editing:focus-within { box-shadow: 0 0 0 3px var(--accent-bg); }
+  .cv-box-lbl { font-size: 12px; font-weight: 600; color: var(--label2); }
+  .cv-box-val, .cv-box input { font-size: 20px; font-weight: 700; line-height: 1.25; overflow-wrap: anywhere; }
+  .cv-box input { width: 100%; min-width: 0; padding: 0; margin: 0; border: 0; border-radius: 0; background: transparent; font-family: inherit; color: var(--text); }
+  .cv-box input:focus, label.ed-name input:focus { box-shadow: none; } /* the ring goes around the whole box instead */
+  .cv-meta { font-size: 13px; color: var(--label2); margin-top: 8px; }
+  .cv-edbtns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .call-pill { display: inline-flex; align-items: center; gap: 10px; padding: 5px 6px 5px 12px; border: 1.5px solid transparent; border-radius: 999px; background: var(--card2); color: var(--text); font: inherit; }
+  .call-pill:hover { background: var(--fill); }
+  .call-pill svg { width: 17px; height: 17px; color: var(--accent); flex: none; }
+  .call-pill .num { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .call-tag { padding: 3px 11px; border-radius: 999px; background: var(--fill); color: var(--label2); font-size: 13px; font-weight: 700; line-height: 1.3; }
+  .call-pill.active { border-color: var(--accent); background: var(--accent-bg); }
+  .call-pill.active .call-tag { background: #bf5700; color: #fff; }
+  .cv-act button { display: inline-flex; align-items: center; gap: 6px; }
+  .cv-act svg { width: 16px; height: 16px; flex: none; }
+  .cv-act .plain { color: var(--text); }
+
+  /* Floating call banner (top center, over everything) */
+  .call-hud { position: fixed; top: 12px; left: 50%; z-index: 100; display: flex; align-items: center; gap: 12px; min-width: 340px; padding: 8px 10px 8px 8px; border-radius: 999px;
+              background: rgba(28,28,30,.86); -webkit-backdrop-filter: blur(24px) saturate(1.6); backdrop-filter: blur(24px) saturate(1.6); color: #fff;
+              border: .5px solid rgba(255,255,255,.18); box-shadow: 0 18px 50px rgba(0,0,0,.4), 0 2px 8px rgba(0,0,0,.25);
+              transform: translateX(-50%); animation: hud-in .45s var(--ios) both; }
+  @keyframes hud-in { from { opacity: 0; transform: translate(-50%, -16px) scale(.97); } to { opacity: 1; transform: translateX(-50%); } }
+  .call-av { position: relative; width: 38px; height: 38px; border-radius: 50%; background: #ff9500; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 14px; flex: none; }
+  .call-av.ringing::after { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid #ff9500; animation: ring 1.4s ease-out infinite; }
+  @keyframes ring { from { opacity: .9; transform: scale(.9); } to { opacity: 0; transform: scale(1.35); } }
+  .call-who { flex: 1; display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+  .call-who b { font-size: 15px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .call-who span { font-size: 12.5px; color: rgba(235,235,245,.7); display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+  .call-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff9f0a; flex: none; }
+  .call-btn { width: 38px; height: 38px; border-radius: 50%; padding: 0; display: grid; place-items: center; flex: none; }
+  .call-btn.end { background: #ff3b30; color: #fff; }
+  .call-btn svg { width: 18px; height: 18px; }
+  @media (prefers-reduced-motion: reduce) { .call-hud { animation: none; } .call-av.ringing::after { display: none; } }
+  .ada-chip { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 6px; background: var(--red); color: #fff; font-size: 11px; font-weight: 800; vertical-align: 1px; }
+  /* 📊 Metrics */
+  .met-card { width: min(980px, 100%); }
+  .met-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 2px 4px; }
+  .met-top .muted { font-size: 13px; }
+  .met-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 10px 0; }
+  .met-tile { background: var(--card); border-radius: 12px; padding: 12px 14px; }
+  .met-tile .k { font-size: 12px; color: var(--muted); }
+  .met-tile .v { font-size: 26px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.15; margin-top: 2px; }
+  .met-tile .s { font-size: 12px; color: var(--label2); margin-top: 2px; }
+  .met-bar { display: flex; gap: 2px; height: 22px; border-radius: 4px; overflow: hidden; background: var(--card); }
+  .met-bar.mini { height: 10px; min-width: 90px; }
+  .met-bar > i { display: block; height: 100%; min-width: 2px; }
+  .met-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 2px 0; font-size: 13px; color: var(--label2); }
+  .met-legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .met-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .met-panel { background: var(--card); border-radius: 12px; padding: 14px; margin: 10px 0; }
+  .met-panel h4 { margin: 0 0 10px; font-size: 14px; }
+  .met-table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  .met-table th { text-align: right; font-weight: 500; color: var(--muted); padding: 6px 8px; border-bottom: .5px solid var(--sep); white-space: nowrap; }
+  .met-table td { text-align: right; padding: 7px 8px; border-bottom: .5px solid var(--sep); color: var(--text); }
+  .met-table th:first-child, .met-table td:first-child { text-align: left; }
+  .met-table td.bar { width: 28%; }
+  .met-scroll { overflow-x: auto; }
+  .met-other { font-size: 13px; color: var(--label2); line-height: 1.7; }
+  .met-other b { color: var(--text); font-variant-numeric: tabular-nums; }
+  #metTip { position: fixed; z-index: 60; pointer-events: none; background: var(--card2); color: var(--text); border: .5px solid var(--sep);
+            border-radius: 8px; padding: 6px 9px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.18); white-space: nowrap; }
+  .set-sec { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; margin: 18px 14px 6px; }
+  .set-group { background: var(--card); border-radius: 12px; overflow: hidden; }
+  .set-row { display: flex; align-items: center; gap: 12px; padding: 11px 14px; min-height: 44px; flex-wrap: wrap; }
+  .set-row + .set-row { border-top: .5px solid var(--sep); }
+  .set-row > span:first-child { flex: 1; }
+  .set-note { font-size: 12px; color: var(--muted); margin: 6px 14px 0; }
+  .tpl { padding: 10px 14px; } .tpl + .tpl { border-top: .5px solid var(--sep); }
+  .tpl label { font-weight: 600; font-size: 14px; display: block; margin-bottom: 4px; }
+  .tpl .prev { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .accents { display: flex; flex-wrap: wrap; gap: 12px; padding: 14px; }
+  .acc { width: 34px; height: 34px; border-radius: 50%; padding: 0; position: relative; box-shadow: inset 0 0 0 1px rgba(0,0,0,.08); }
+  .acc.on { box-shadow: 0 0 0 2px var(--card), 0 0 0 4px var(--accent); }
+  .closex { width: 30px; height: 30px; padding: 0; border-radius: 50%; color: var(--label2); }
+  code.key { font-size: 12px; word-break: break-all; background: var(--fill); padding: 4px 6px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div id="callHud" role="status" aria-live="polite" hidden></div>
+<div class="wrap">
+  <div class="top">
+    <span class="brand"><span id="brandLogo" class="brand-logo"></span><span class="brand-t">Texts</span></span>
+    <button id="phonePill" class="pill phone" onclick="openSettings('bridge')" title="Bridge + phone status" aria-label="Phone status"></button>
+    <button id="autoBtn" class="pill" onclick="toggleSetting('TX_AUTOTEXT')" title="Text new riders automatically"></button>
+    <span id="etaChip" class="pill info" title="What riders are told: tonight's average wait (Arrival − Call)"></span>
+    <span class="spacer"></span>
+    <button class="pill" onclick="openMetrics()" title="How riders respond to the texts">📊 Metrics</button>
+    <button class="pill" onclick="openSettings()">⚙ Settings</button>
+    <button class="pill" onclick="refresh(true)" title="Refresh">↻</button>
+  </div>
+  <div id="banners"></div>
+  <div id="inbox"></div>
+  <div class="main">
+    <section>
+      <label class="sbar" for="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M20 20l-4.6-4.6"/></svg>
+        <input id="search" type="search" placeholder="Search name, phone, or place" autocomplete="off" aria-label="Search riders tonight" oninput="renderRiders()"><span class="kbd" id="searchKbd" aria-hidden="true">Ctrl K</span></label>
+      <div class="col-h">Tonight <span id="rideCount" class="count"></span></div>
+      <div id="filterSeg" class="seg"></div>
+      <div id="riderList" class="list"></div>
+    </section>
+    <section id="convo" class="convo"></section>
+  </div>
+</div>
+
+<div id="loadbar"></div>
+<div id="toast" class="toast" hidden></div>
+<div id="askSheet" class="ask-bg" hidden onclick="if (event.target === this) answer(false)">
+  <div class="ask-card"><p id="askText"></p><div id="askExtra" style="margin:-6px 0 14px"></div><div class="ask-btns"><button onclick="answer(false)">Cancel</button><button id="askOk" class="primary" onclick="answer(true)">OK</button></div></div>
+</div>
+<div id="metricsSheet" class="ask-bg" hidden onclick="if (event.target === this) closeMetrics()">
+  <div class="set-card met-card" role="dialog" aria-label="Metrics">
+    <div class="set-h"><b>📊 Metrics</b><button class="closex" onclick="closeMetrics()" aria-label="Close">✕</button></div>
+    <div class="set-body" id="metBody"></div>
+  </div>
+</div>
+<div id="metTip" hidden></div>
+<div id="settingsSheet" class="ask-bg set-bg" hidden onclick="if (event.target === this) closeSettings()">
+  <div class="set-card" role="dialog" aria-label="Settings">
+    <div class="set-h"><b><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color:var(--accent)"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</b><button class="closex" onclick="closeSettings()" aria-label="Close settings">✕</button></div>
+    <div class="set-main">
+      <nav class="set-nav" aria-label="Settings categories" id="setNav"></nav>
+      <div class="set-body" id="setBody"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const PAGE_VERSION = '2026-11-04h'; // must match FILE_VERSION_* in every .gs file
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const js = v => esc(JSON.stringify(v));
+  const SUREWALK_SVG = `<svg class="sw-logo" viewBox="0 0 1800 745" role="img" aria-label="SURE Walk"><g transform="translate(0.000000,745.000000) scale(0.100000,-0.100000)" fill="currentColor"><path d="M4216 7284 c-687 -124 -1199 -787 -1411 -1829 -131 -642 -122 -1182 31 -1890 41 -189 103 -437 113 -447 3 -4 110 15 236 43 127 27 264 56 305 63 l75 12 3 367 2 367 55 0 55 0 0 160 c0 122 3 160 13 160 6 -1 41 -7 77 -15 36 -8 68 -14 73 -15 4 0 7 191 7 425 l0 425 270 0 270 0 0 -425 c0 -234 3 -425 8 -425 4 1 36 7 72 15 36 8 71 14 78 15 9 0 12 -38 12 -160 l0 -160 55 0 55 0 0 -369 0 -368 78 -12 c42 -7 160 -30 260 -52 101 -22 190 -38 196 -36 14 6 53 147 115 412 274 1178 277 2026 11 2800 -244 706 -625 1027 -1114 939z"/><path d="M4065 4246 c-144 -64 -101 -276 55 -276 85 0 143 61 143 148 0 96 -111 168 -198 128z"/><path d="M3860 2700 l0 -1040 50 0 50 0 0 1040 0 1040 -50 0 -50 0 0 -1040z"/><path d="M4070 2700 l0 -1040 50 0 50 0 0 1040 0 1040 -50 0 -50 0 0 -1040z"/><path d="M4280 2700 l0 -1040 50 0 50 0 0 1040 0 1040 -50 0 -50 0 0 -1040z"/><path d="M14288 3337 c-123 -42 -235 -139 -337 -290 -152 -227 -266 -510 -496 -1232 -180 -567 -271 -809 -386 -1025 -151 -282 -332 -423 -503 -391 -134 25 -190 131 -189 356 2 284 97 643 464 1751 106 320 109 337 60 363 -54 29 -131 -5 -131 -58 0 -43 -293 -875 -467 -1326 -264 -685 -538 -1077 -765 -1093 -198 -15 -302 153 -262 425 42 292 311 1219 505 1748 l59 160 90 28 c199 63 381 182 432 280 43 86 15 203 -61 254 -176 119 -400 -23 -548 -345 -20 -43 -36 -78 -38 -79 -1 -2 -121 -21 -266 -43 -701 -106 -977 -201 -1164 -402 -160 -171 -196 -421 -94 -636 106 -220 483 -351 483 -167 0 49 -26 70 -99 79 -109 12 -202 80 -246 179 -37 80 -35 249 3 330 88 186 336 315 768 397 134 25 543 90 547 86 2 -1 -26 -85 -62 -187 -214 -603 -437 -1399 -475 -1691 -36 -275 70 -495 270 -559 266 -85 498 70 758 508 l77 129 1 -136 c1 -323 130 -504 365 -518 155 -9 278 44 410 177 192 193 334 485 534 1101 284 869 342 1032 446 1245 140 288 298 445 447 445 89 0 131 96 64 146 -27 21 -120 16 -194 -9z m-2085 -188 c36 -57 -118 -192 -256 -223 l-28 -7 17 33 c45 88 119 178 169 207 27 15 86 9 98 -10z"/><path d="M1340 3180 c-494 -62 -808 -291 -901 -659 -32 -129 -25 -332 17 -452 104 -295 306 -431 897 -600 500 -143 611 -216 612 -404 0 -120 -63 -195 -206 -247 -104 -37 -342 -33 -500 9 -250 66 -504 193 -691 346 -32 26 -60 47 -62 47 -10 0 -266 -534 -258 -539 4 -3 45 -34 90 -68 656 -493 1696 -518 2125 -53 276 300 279 792 7 1070 -151 154 -335 242 -789 375 -435 127 -555 210 -556 386 -1 302 527 310 1115 18 85 -42 158 -74 161 -71 4 4 62 125 129 270 118 252 122 263 104 277 -80 62 -366 184 -537 230 -220 60 -561 89 -757 65z"/><path d="M15883 2778 c-11 -13 -59 -135 -106 -273 -483 -1419 -597 -1690 -789 -1872 -126 -119 -264 -131 -298 -27 -43 129 17 336 385 1327 68 185 70 202 32 237 -54 51 -113 13 -152 -97 -35 -99 -38 -102 -64 -59 -105 170 -365 205 -559 76 -409 -274 -737 -1234 -537 -1575 131 -224 440 -177 665 101 l55 68 7 -57 c35 -281 331 -342 570 -119 36 34 76 77 89 96 l23 35 13 -52 c61 -238 343 -285 596 -100 39 29 49 33 43 18 -22 -51 -19 -74 13 -106 26 -25 37 -30 59 -24 64 15 56 -5 442 1075 340 951 450 1266 450 1284 0 53 -106 90 -142 49 -8 -10 -138 -362 -287 -783 -339 -953 -422 -1133 -615 -1326 -143 -142 -318 -181 -383 -85 -62 92 -19 272 254 1046 203 575 373 1073 373 1095 0 62 -94 95 -137 48z m-1230 -784 c85 -29 157 -139 157 -240 0 -54 -163 -471 -276 -704 -165 -342 -323 -509 -484 -512 -224 -5 -205 457 40 979 170 362 380 539 563 477z"/><path d="M8305 2759 c-549 -75 -934 -475 -1006 -1044 -17 -139 -7 -453 19 -573 127 -583 548 -917 1157 -915 379 1 688 121 943 367 l93 90 -128 129 c-70 70 -145 142 -166 159 l-37 30 -58 -50 c-204 -176 -379 -239 -637 -229 -340 12 -540 184 -583 500 l-9 67 819 0 818 0 0 153 c0 734 -292 1190 -834 1302 -97 19 -298 27 -391 14z m309 -515 c189 -46 305 -195 350 -451 l6 -33 -530 0 c-608 0 -546 -13 -509 106 97 314 356 457 683 378z"/><path d="M6981 2749 c-260 -24 -464 -119 -630 -295 l-81 -85 0 170 0 171 -305 0 -305 0 0 -1245 0 -1245 305 0 305 0 0 783 0 784 32 49 c52 80 195 216 271 259 137 76 294 106 490 95 49 -3 90 -3 92 0 3 4 20 480 20 545 0 24 -46 28 -194 14z"/><path d="M3010 1943 c0 -455 4 -797 10 -838 73 -512 425 -825 985 -875 530 -48 987 191 1144 599 79 204 75 150 78 1064 l4 817 -278 -2 -278 -3 -5 -790 -5 -790 -23 -65 c-68 -188 -194 -296 -392 -336 -257 -51 -518 61 -619 268 -62 128 -61 107 -61 950 l0 768 -280 0 -280 0 0 -767z"/><path d="M17278 2153 c-18 -15 -107 -96 -198 -178 -91 -83 -259 -236 -375 -339 -345 -310 -355 -321 -355 -365 0 -81 73 -95 161 -32 106 75 168 89 238 53 84 -42 96 -120 61 -387 -38 -285 -18 -390 89 -472 179 -138 425 -35 620 257 68 102 247 455 257 506 9 45 -30 88 -80 88 -47 0 -66 -20 -106 -114 -139 -321 -292 -545 -415 -605 -96 -47 -175 -32 -209 40 -21 43 -20 74 5 301 39 355 3 486 -150 541 -28 10 -50 20 -49 24 2 3 136 126 298 273 395 358 383 344 321 407 -37 36 -70 37 -113 2z"/></g></svg>`; // same SURE Walk logo as the dispatch panel
+
+  let state = null, selected = null, filter = 'all', busy = 0, seenFlags = null, lastRefresh = 0;
+  let prefs = Object.assign({ theme: 'system', accent: null, sound: true, readAt: {} }, (() => { try { return JSON.parse(localStorage.getItem('textsPrefs') || '{}'); } catch (e) { return {}; } })());
+  const savePrefsLocal = () => { try { localStorage.setItem('textsPrefs', JSON.stringify(prefs)); } catch (e) { /* storage blocked */ } };
+
+  // ---------- server calls ----------
+  function call(fn, ...args) {
+    return new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(e => rej(e))[fn](...args));
+  }
+  // The button you pressed (or, after a confirm dialog, the button that opened it) shows a spinner while it works.
+  let lastPressed = null, lastPressedAt = 0, askOrigin = null, loads = 0;
+  document.addEventListener('pointerdown', e => { lastPressed = e.target.closest('button'); lastPressedAt = Date.now(); }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { lastPressed = document.activeElement && document.activeElement.closest && document.activeElement.closest('button'); lastPressedAt = Date.now(); } }, true);
+  function pressedButton() {
+    let b = Date.now() - lastPressedAt < 15000 ? lastPressed : null;
+    if (b && b.closest('#askSheet')) b = askOrigin; // the action was confirmed in a dialog: show it on the original button
+    return b && b.isConnected ? b : null;
+  }
+  function loading(d) { loads = Math.max(0, loads + d); document.body.classList.toggle('loading', loads > 0); }
+  // Runs a server call with visible feedback (spinner on the pressed button + the top loading bar).
+  async function withFeedback(promiseFn) {
+    const btn = pressedButton();
+    if (btn) btn.classList.add('working');
+    loading(1);
+    try { return await promiseFn(); }
+    finally { loading(-1); if (btn) btn.classList.remove('working'); }
+  }
+  async function act(fn, ...args) {
+    busy++;
+    try { return await withFeedback(async () => { const s = await call(fn, ...args); if (s && s.rides) { state = s; render(); } return s; }); }
+    catch (e) { toast(e.message || String(e), 'err'); throw e; }
+    finally { busy--; }
+  }
+  let refreshing = false;
+  async function refresh(force) {
+    if ((busy || refreshing) && !force) return; // one refresh at a time — they never pile up on the server
+    refreshing = true;
+    try { await refreshNow(force); } finally { refreshing = false; }
+  }
+  async function refreshNow(force) {
+    const run = async () => { state = await call('getState'); lastRefresh = Date.now(); render(); };
+    try { await (force ? withFeedback(run) : run()); }
+    catch (e) { if (force) toast(e.message || String(e), 'err'); }
+  }
+  setInterval(() => { if (!document.hidden || Date.now() - lastRefresh > 15000) refresh(); }, 3000);
+
+  // ---------- helpers ----------
+  const fmtPhone = p => (p && p.length === 10 ? `(${p.slice(0, 3)}) ${p.slice(3, 6)}-${p.slice(6)}` : p || '');
+  const clock = ms => { const d = new Date(ms); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; }; // H:mm like the sheet
+  const ago = ms => { const m = Math.round((Date.now() - ms) / 60e3); return m < 1 ? 'just now' : m < 60 ? `${m}m ago` : `${Math.floor(m / 60)}h ${m % 60}m ago`; };
+  const rideById = id => state && state.rides.find(r => r.id === id);
+  // Texts you just sent show at once (pendingSends) until the server has them; buttons that are working are greyed out.
+  let pendingSends = [], sendBusy = false;
+  const working = new Set(); // keys of buttons waiting on the server: 'confirm:<rideId>', 'retry:<outId>', 'test'
+  const threadOf = phone => (state ? state.msgs.filter(m => m.phone === phone).concat(pendingSends.filter(m => m.phone === phone)) : []);
+  function stateChip(r) {
+    if (r.sheetState === 'picked' && !['cancelled', 'duplicate'].includes(r.state)) return '<span class="chip picked">Picked up</span>';
+    const map = { ready: ['ready', 'Not texted'], queued: ['queued', 'Sending…'], texted: ['texted', 'Texted'], asking: ['texted', 'Asked which Moody'], confirmed: ['confirmed', 'Confirmed ✓'],
+      cancelled: ['cancelled', 'Cancelled'], duplicate: ['duplicate', 'Duplicate'], assigned: ['assigned', 'Assigned'], optedout: ['optedout', 'Opted out'], flagged: ['flagged', 'Needs you'], skipped: ['ready', '—'] };
+    if (r.state === 'texted' && r.noReply) return `<span class="chip noreply">No reply ${r.noReply}m</span>`;
+    if (r.invalid) return '<span class="chip invalid">Invalid — review</span>';
+    if (r.state === 'skipped') { // handled without a text: say how
+      if (r.sheetState === 'cancelled') return '<span class="chip cancelled">Cancelled</span>';
+      if (r.driver) return '<span class="chip assigned">Assigned</span>';
+      if (r.call || r.dispatcher) return '<span class="chip assigned">Called</span>';
+    }
+    const [cls, label] = map[r.state] || ['ready', r.state];
+    return `<span class="chip ${cls}">${label}</span>`;
+  }
+  // A finished ride (picked up, cancelled, duplicate, opted out): no card, dimmer, so open rides stand out.
+  const finished = r => r.sheetState === 'picked' || r.sheetState === 'cancelled' || r.sheetState === 'dup' || ['cancelled', 'duplicate', 'optedout'].includes(r.state);
+  // The status stripe: red = invalid / flagged, amber = no reply, blue = sending / texted / ready, green = confirmed, gray = assigned.
+  function rowKind(r) {
+    if (finished(r)) return 'done';
+    if (r.invalid || r.state === 'flagged') return 'k-red';
+    if (r.state === 'texted' && r.noReply) return 'k-amber';
+    if (r.state === 'confirmed') return 'k-green';
+    if (r.state === 'assigned' || r.driver || (r.state === 'skipped' && (r.call || r.dispatcher))) return 'k-gray';
+    return 'k-blue';
+  }
+  // How they confirmed: a green speech bubble + check when they replied YES by text. Not confirmed: nothing.
+  function txIcon(r) {
+    if (!(r.confirmedAt || r.state === 'confirmed')) return '';
+    const tip = 'Confirmed by text' + (r.confirmedAt ? ' at ' + clock(r.confirmedAt) : '');
+    return `<span class="tx-ic" role="img" aria-label="${tip}" title="${tip}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3C6.5 3 3 6.6 3 11c0 2.2 1 4.2 2.6 5.6L5 21l4.3-2.1c.9.2 1.8.3 2.7.3 5.5 0 9-3.6 9-8.2S17.5 3 12 3z"/><path d="M8.5 11.2l2.4 2.4 4.6-4.8" stroke-width="2.3"/></svg></span>`;
+  }
+  // The muted third line: "23:28 · row 5 · note" (the note is left out when it only repeats the chip).
+  function metaLine(r, extra) {
+    const chipText = stateChip(r).replace(/<[^>]+>/g, '').trim().toLowerCase();
+    let note = extra != null ? extra : r.note;
+    if (note && (/^already picked up\.?$/i.test(note) || note.trim().toLowerCase() === chipText)) note = '';
+    return [r.time, 'row ' + r.row, note].filter(Boolean).map(esc).join(' · ');
+  }
+  // Phone search ignores formatting: "5550110", "555-0110", "(512) 555-0110" and the last 4 digits all match.
+  function rideMatches(r, q) {
+    const digits = q.replace(/\D/g, '');
+    if (digits.length >= 4 && digits.length === q.replace(/[\s()+.\-]/g, '').length) {
+      const d = digits.length === 11 && digits[0] === '1' ? digits.slice(1) : digits;
+      return String(r.phone10 || '').includes(d);
+    }
+    return [r.first, r.last, r.first + ' ' + (r.last || ''), r.phone10, r.pickup, r.dropoff, r.pickupName, r.dropoffName].join(' ').toLowerCase().includes(q);
+  }
+  // Ctrl+K (⌘K on a Mac) focuses and selects the search from anywhere.
+  const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform || '');
+  document.addEventListener('keydown', e => {
+    if ((IS_MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); const q = $('search'); q.focus(); q.select(); }
+  });
+  function riderRow(r, opts) {
+    opts = opts || {};
+    return `<button type="button" class="rrow ${rowKind(r)} ${selected === r.id && !opts.inbox ? 'sel' : ''}" onclick='select(${js(r.id)})' aria-label="${esc(`${r.first} ${r.last || ''}, ${r.pickupName} to ${r.dropoffName}`)}"${selected === r.id && !opts.inbox ? ' aria-current="true"' : ''}>
+        <span class="rm"><span class="rl1"><span class="rn">${esc(r.first)} ${esc(r.last || '')}</span>${r.ada ? '<span class="ada-chip" title="ADA pickup: an ADA vehicle and a supervisor go along">♿ ADA</span>' : ''}${!opts.inbox && unread(r) ? '<span class="unread" title="New reply"></span>' : ''}${txIcon(r)}${stateChip(r)}</span>
+          <span class="route" style="display:block">${esc(r.pickupName)}<span class="arrow">→</span>${esc(r.dropoffName)}</span>
+          <span class="meta" style="display:block">${metaLine(r, opts.note)}</span>
+          ${opts.why ? `<span class="note" style="display:block"><b>${esc(opts.why)}</b></span>` : ''}</span></button>`;
+  }
+  const unread = r => r.lastInAt && r.lastInAt > (prefs.readAt[r.id] || 0) && selected !== r.id;
+
+  // ---------- render ----------
+  function render() { if (window.checkBuild) checkBuild(state);
+    if (!state) return;
+    renderTop(); renderBanners(); renderInbox(); renderRiders(); renderConvo(); watchFlags();
+  }
+  function renderTop() {
+    if (!$('brandLogo').firstChild) $('brandLogo').innerHTML = SUREWALK_SVG;
+    const b = state.bridge, age = b ? Date.now() - b.at : Infinity, pill = $('phonePill');
+    const [cls, text] = !b ? ['bad', 'Phone: bridge not connected yet'] : age > 30000 ? ['bad', `Bridge offline · last ${ago(b.at)}`]
+      : !b.connected ? ['warn', 'Phone disconnected'] : ['ok', 'Phone connected'];
+    // the phone as an icon (green = connected, with signal waves; orange / red with a slash = not), status in the tooltip
+    pill.className = 'pill phone ' + cls;
+    const waves = cls === 'ok' ? '<path d="M17.5 6.5a5 5 0 0 1 0 7M20 4a8.5 8.5 0 0 1 0 12"/>' : '<path d="M3 3l18 18"/>';
+    pill.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="2" width="12" height="20" rx="2.5"/><path d="M9 18.5h2"/>${waves}</svg>`
+      + (state.outbox ? `<span class="badge">${state.outbox}</span>` : '');
+    pill.title = text + (state.outbox ? ` · ${state.outbox} to send` : '') + '\nClick for bridge settings';
+    pill.setAttribute('aria-label', pill.title);
+    $('autoBtn').innerHTML = `<span class="sw ${state.autoText ? 'on' : ''}"></span>Auto-text`;
+    $('autoBtn').disabled = !state.texting;
+    $('etaChip').textContent = `⏱ ETA ${state.eta.replace(/^about /, '~')}`;
+  }
+  function renderBanners() {
+    const bad = Object.keys(state.versions).filter(f => state.versions[f] !== PAGE_VERSION);
+    let h = '';
+    if (!state.setUp) h += `<div class="alert warn">Not set up yet. <button class="link" onclick="setup()">Set up texting</button> — makes the "SURE Walk Texts" log spreadsheet and the bridge key.</div>`;
+    if (bad.length) h += `<div class="alert">⚠ Out-of-date files in the Apps Script project: <b>${bad.map(esc).join(', ')}</b>. Re-paste them (and Dashboard.html), then Deploy → Manage deployments → Edit → New version (both deployments).</div>`;
+    if (!state.texting) h += `<div class="alert warn">Texting is off — nothing is sent, not even replies. <button class="link" onclick="toggleSetting('TX_TEXTING')">Turn it back on</button> (also in ⚙ Settings).</div>`;
+    $('banners').innerHTML = h;
+  }
+  let inboxSig = '';
+  const shownFlags = new Set(); // flags already on screen once: they don't animate again
+  // "Off-campus pickup: we only pick up on campus": the flag's kind + its note, without the name / row (the row shows
+  // them) and without the sentence that repeats the button ("Review the cancel text to cancel it and tell them").
+  function inboxReason(x) {
+    const n = String(x.note || '').replace(/\s*Review the cancel text[^.]*\.?/i, '').replace(/^[^(]{1,60}\(row \d+\)\s*(?:—\s*)?/, '').replace(/\.\s*$/, '').trim();
+    return n ? `${x.kind}: ${n}` : x.kind;
+  }
+  function renderInbox() {
+    const f = state.flags.slice().reverse();
+    const sig = JSON.stringify([state.failedCount || 0].concat(f.map(x => { const r = x.rideId && rideById(x.rideId); return [x.id, r ? [r.invalid, r.state, r.sheetState, r.noReply, r.confirmedAt, r.first, r.last, r.pickupName, r.dropoffName] : '']; })));
+    if (sig === inboxSig) return; // nothing new: leave it alone (no redraw, no animation)
+    inboxSig = sig;
+    $('inbox').innerHTML = f.length ? `<div class="col-h">Needs a look <span class="count">${f.length}</span>
+        ${(state.failedCount || 0) ? `<button class="link" onclick="act('resendFailed')">Resend all failed (${state.failedCount})</button>` : ''}
+        <button class="link" ${(state.failedCount || 0) ? 'style="margin-left:4px"' : ''} onclick="act('markAllHandled')">All handled</button></div>
+      <div class="rlist">${f.map(x => { const r = x.rideId && rideById(x.rideId);
+        const row = r ? riderRow(r, { inbox: true, note: inboxReason(x) })
+          : `<button type="button" class="rrow ${x.urgent ? 'k-red' : 'k-amber'}" onclick='openFlag(${js(x.id)})'><span class="rm"><span class="rl1"><span class="rn">${esc(fmtPhone(x.phone) || x.kind)}</span><span class="chip flagged">${esc(x.kind)}</span></span>
+              ${x.text ? `<span class="route" style="display:block">${esc(x.text)}</span>` : ''}<span class="meta" style="display:block">${[clock(x.ts), x.note].filter(Boolean).map(esc).join(' · ')}</span></span></button>`;
+        return `<div class="ib-row ib-card ${shownFlags.has(x.id) ? '' : 'new'}">${row}<span class="ib-acts">
+          ${x.rideId || x.phone ? `<button onclick='openFlag(${js(x.id)})'>Open</button>` : ''}
+          ${r && r.invalid ? `<button class="primary" onclick='cancelText(${js(x.rideId)}, ${js(r.invalid)}, ${js(x.id)})'>Review cancel text</button>` : ''}
+          <button class="ok" title="Mark handled" aria-label="Mark handled" onclick='act("markHandled", ${js(x.id)})'>✓</button></span></div>`; }).join('')}</div>` : '';
+    f.forEach(x => shownFlags.add(x.id));
+  }
+  // All · Waiting (texted, ride still open, no YES yet) · Unconfirmed (texted tonight, never said YES — finished rides too,
+  // to see who doesn't confirm and why) · Confirmed. A search looks through every rider, whatever filter is on.
+  const FILTERS = [['all', 'All'], ['waiting', 'Waiting'], ['unconf', 'Unconfirmed'], ['confirmed', 'Confirmed']];
+  const repliedAfterText = r => r.textedAt && r.lastInAt >= r.textedAt - 60e3;
+  const unconfirmed = r => !!r.textedAt && !r.confirmedAt && r.state !== 'confirmed';
+  const FILTER_FN = {
+    all: () => true,
+    waiting: r => ['ready', 'queued', 'texted', 'asking'].includes(r.state) && r.sheetState === 'open',
+    unconf: unconfirmed,
+    confirmed: r => r.state === 'confirmed' || !!r.confirmedAt,
+  };
+  function renderRiders() {
+    if (!state) return;
+    if (!FILTER_FN[filter]) filter = 'all';
+    const q = $('search').value.trim().toLowerCase();
+    $('filterSeg').innerHTML = FILTERS.map(([k, l]) => `<button class="${filter === k && !q ? 'on' : ''}" onclick="filter='${k}'; $('search').value=''; renderRiders()">${l} <span class="muted">${state.rides.filter(FILTER_FN[k]).length}</span></button>`).join('');
+    const want = q ? () => true : FILTER_FN[filter]; // searching: every rider tonight
+    const list = state.rides.filter(r => want(r) && (!q || rideMatches(r, q)));
+    const why = r => !unconfirmed(r) ? '' : repliedAfterText(r) ? 'Replied, never said YES' : 'Never replied to the text';
+    $('rideCount').textContent = state.rides.length;
+    $('searchKbd').textContent = IS_MAC ? '⌘K' : 'Ctrl K';
+    $('riderList').innerHTML = list.length ? list.map(r => riderRow(r, { why: filter === 'unconf' && !q ? why(r) : '' })).join('')
+      : `<div class="empty">${!state.rides.length ? 'No rides tonight yet.' : q ? 'No rider tonight matches that.' : 'No riders in this list.'}</div>`;
+  }
+  let lastConvoSig = '';
+  const shownMsgs = new Set(); // bubbles already drawn once: no replayed animation on redraws
+  let editingRideId = null;
+  let draftEdit = { first: '', last: '', pickup: '', dropoff: '' };
+
+  // A call through the bridge (BlueFerry). The bridge can only dial: it can't say when the rider picks up, can't mute
+  // and can't hang up, so the banner shows "Calling…" with a timer from the moment you pressed Call, and End closes it.
+  let callState = { active: false, rideId: null, startTime: 0, timer: null };
+  const PHONE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>';
+  function renderCallHud() {
+    const hud = $('callHud');
+    if (!callState.active) { hud.hidden = true; hud.innerHTML = ''; return; }
+    const r = rideById(callState.rideId);
+    const name = r ? `${r.first} ${r.last || ''}`.trim() : 'Rider';
+    const initials = (name.split(/\s+/).map(p => p[0]).join('') || 'SW').slice(0, 2).toUpperCase();
+    const sec = Math.floor((Date.now() - callState.startTime) / 1000);
+    const status = `Calling… ${r ? fmtPhone(r.phone10) : ''} · ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    if (hud.hidden || !hud.firstChild) {
+      hud.hidden = false; hud.className = 'call-hud';
+      hud.innerHTML = `<span class="call-av ringing">${esc(initials)}</span>
+        <span class="call-who"><b>${esc(name)}</b><span><span class="call-dot"></span><span id="hudStatus"></span></span></span>
+        <button class="call-btn end" onclick="endCall()" title="End: closes this banner. Hang up on the iPhone if the call is still going." aria-label="End call">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 9c-2.6 0-5.1.5-7.4 1.5-.8.3-1.3 1.1-1.3 2v2.3c0 .8.7 1.4 1.5 1.3l3.1-.5c.7-.1 1.2-.7 1.2-1.4v-1.6c1.9-.5 3.9-.5 5.8 0v1.6c0 .7.5 1.3 1.2 1.4l3.1.5c.8.1 1.5-.5 1.5-1.3v-2.3c0-.9-.5-1.7-1.3-2C17.1 9.5 14.6 9 12 9z"/></svg></button>`;
+    }
+    $('hudStatus').textContent = status;
+  }
+  async function callPill(id) {
+    if (callState.active && callState.rideId === id) return endCall();
+    const r = rideById(id); if (!r || !r.phone10) return;
+    try { await act('dialRide', id); } catch (e) { return; } // act showed the error
+    if (callState.timer) clearInterval(callState.timer);
+    callState = { active: true, rideId: id, startTime: Date.now(), timer: setInterval(renderCallHud, 1000) };
+    renderCallHud(); lastConvoSig = ''; renderConvo();
+  }
+  function endCall() {
+    if (callState.timer) clearInterval(callState.timer);
+    callState = { active: false, rideId: null, startTime: 0, timer: null };
+    renderCallHud(); lastConvoSig = ''; renderConvo();
+  }
+
+  function startInlineEdit(focusField) {
+    const r = rideById(selected);
+    if (!r) return;
+    editingRideId = r.id;
+    draftEdit = { first: r.first, last: r.last || '', pickup: r.pickup, dropoff: r.dropoff };
+    lastConvoSig = '';
+    renderConvo();
+    setTimeout(() => {
+      const el = focusField === 'pu' ? $('edPu') : focusField === 'do' ? $('edDo') : $('edName');
+      if (el) { el.focus(); el.select(); }
+    }, 40);
+  }
+
+  function cancelInlineEdit() {
+    editingRideId = null;
+    lastConvoSig = '';
+    renderConvo();
+  }
+
+  async function saveInlineEdit() {
+    const r = rideById(editingRideId);
+    if (!r) return;
+    const nameVal = $('edName') ? $('edName').value.trim() : (draftEdit.first + ' ' + draftEdit.last);
+    const parts = nameVal.split(/\s+/);
+    const first = parts[0] || '';
+    const last = parts.slice(1).join(' ') || '';
+    const pickup = $('edPu') ? $('edPu').value.trim() : draftEdit.pickup;
+    const dropoff = $('edDo') ? $('edDo').value.trim() : draftEdit.dropoff;
+
+    if (!first || !pickup || !dropoff) {
+      return toast("Name, pick-up and drop-off can't be empty", 'warn');
+    }
+
+    editingRideId = null;
+    try {
+      await act('editRide', r.id, { first, last, pickup, dropoff });
+      toast(`Saved changes for ${first}`);
+    } catch (e) {
+      toast(e.message || 'Failed to save', 'err');
+    } finally {
+      lastConvoSig = '';
+      renderConvo();
+    }
+  }
+
+  function onEditKey(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveInlineEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      cancelInlineEdit();
+    }
+  }
+
+  function renderConvo() {
+    const r = selected && rideById(selected), el = $('convo');
+    const phone = r ? r.phone10 : selectedPhone;
+    const isEd = r && editingRideId === r.id;
+    const isCalling = r && callState.active && callState.rideId === r.id;
+    const sig = JSON.stringify([selected, selectedPhone, r && [r.state, r.noReply, r.note, r.sheetState, r.confirmedAt, r.call, r.first, r.last, r.pickupName, r.dropoffName, r.textedAt], threadOf(phone).map(m => [m.id, m.st]), sendBusy, [...working], isEd, isCalling]);
+    if (sig === lastConvoSig) return;
+    const draft = $('draft') ? $('draft').value : '';
+    lastConvoSig = sig;
+    if (!r && !selectedPhone) { el.innerHTML = '<div class="empty">Pick a rider to see their texts.</div>'; return; }
+    const msgs = withReactions(threadOf(phone).slice().sort((a, b) => a.ts - b.ts));
+    if (r) { prefs.readAt[r.id] = Date.now(); savePrefsLocal(); }
+    const crew = r && [r.driver, r.nav].filter(Boolean).join(' / ');
+    
+    let headerHtml = '';
+    if (r) {
+      const box = (k, cls, label, val, inputId, field) => isEd
+        ? `<label class="cv-box ${cls} editing"><span class="cv-box-lbl">${label}</span><input id="${inputId}" value="${esc(val)}" autocomplete="off" onkeydown="onEditKey(event)"></label>`
+        : `<button type="button" class="cv-box ${cls}" onclick="startInlineEdit('${field}')" title="Click to fix the ${label.toLowerCase()}"><span class="cv-box-lbl">${label}</span><span class="cv-box-val">${esc(k)}</span></button>`;
+      headerHtml = `<div class="cv-l1"><h2>${isEd
+          ? `<label class="ed-name"><input id="edName" value="${esc(draftEdit.first + (draftEdit.last ? ' ' + draftEdit.last : ''))}" size="${Math.max(6, (draftEdit.first + ' ' + draftEdit.last).trim().length + 1)}" oninput="this.size = Math.max(6, this.value.length + 1)" autocomplete="off" aria-label="Name" onkeydown="onEditKey(event)"></label>`
+          : `<button type="button" class="ed-name" onclick="startInlineEdit('name')" title="Click to fix the name">${esc(r.first)} ${esc(r.last || '')}</button>`}
+          ${txIcon(r)}${stateChip(r)}</h2>
+          <span class="spacer"></span>
+          ${r.phone10 ? `<button type="button" onclick='callPill(${js(r.id)})' class="call-pill ${isCalling ? 'active' : ''}" title="Call ${esc(r.first)} from the UT iPhone (BlueFerry calls; experimental)">
+              ${PHONE_SVG}<span class="num">${esc(fmtPhone(r.phone10))}</span><span class="call-tag">${isCalling ? 'Calling… End' : 'Call'}</span></button>` : ''}</div>
+        <div class="cv-boxes">
+          ${box(r.pickupName || r.pickup, 'pu', 'Pick-up', isEd ? draftEdit.pickup : '', 'edPu', 'pu')}
+          <span class="arrow" aria-hidden="true">→</span>
+          ${box(r.dropoffName || r.dropoff, 'do', 'Drop-off', isEd ? draftEdit.dropoff : '', 'edDo', 'do')}
+          <div class="cv-box info"><span class="cv-box-lbl">Call Time · ${r.call ? 'texted' : 'not texted'}</span><span class="cv-box-val">${esc(r.call || '—')}</span></div>
+        </div>
+        ${isEd ? `<div class="cv-edbtns"><button onclick="cancelInlineEdit()">Cancel</button><button class="primary" onclick="saveInlineEdit()">Save to sheet</button></div>`
+          : `<div class="cv-meta">Requested ${esc(r.time)} · row ${r.row} · click the name or a place to fix it</div>`}`;
+    } else {
+      headerHtml = `<h2>${esc(fmtPhone(phone))}</h2><div class="cv-sub">Not a rider tonight</div>`;
+    }
+
+    el.innerHTML = `<div class="cv-h">
+        ${headerHtml}
+        ${r && r.note && !r.invalid ? `<div class="note">${esc(r.note)}</div>` : ''}
+        ${r && r.invalid ? `<div class="invalid-box"><span>⚠ <b>Invalid ride:</b> ${esc((state.cancelNotices.find(c => c.key === r.invalid) || {}).label || r.note)}. The cancel text is ready — review it, then approve to cancel the ride and send it.</span>
+          <button class="primary" onclick='cancelText(${js(r.id)}, ${js(r.invalid)})'>Review cancel text</button></div>` : ''}
+        <div class="cv-act">${r ? `${['ready', 'flagged'].includes(r.state) && !r.textedAt && r.sheetState === 'open' && r.phone10 && !r.invalid ? `<button class="primary" onclick='textRide(${js(r.id)})' ${working.has('confirm:' + r.id) ? 'disabled' : ''}>${working.has('confirm:' + r.id) ? 'Sending…' : 'Send confirmation'}</button>` : ''}
+          ${r.sheetState === 'open' && r.phone10 ? `<button class="danger" onclick='cancelText(${js(r.id)})' title="Pick a reason, review the text, then cancel the ride and send it"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>Cancel</button>` : ''}
+          ${r.sheetState === 'open' ? `<button class="plain" onclick='dupQuiet(${js(r.id)})' title="Marks the row red (duplicate). No text is sent."><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6.5A2.5 2.5 0 0 0 13.5 4h-7A2.5 2.5 0 0 0 4 6.5v7A2.5 2.5 0 0 0 6.5 16H8"/></svg>Duplicate</button>` : ''}
+          ${r.sheetState === 'open' && r.ada ? `<button class="plain" onclick='notAda(${js(r.id)})' title="They don't need ADA after all: sets ADA to No in the sheet. No text is sent.">♿ Not ADA</button>` : ''}` : ''}</div></div>
+      <div class="feed" id="feed">${msgs.length ? msgs.map(m => bubble(m)).join('') : '<div class="empty">No texts yet.</div>'}</div>
+      ${r ? `<div class="quick">${['eta', 'askCancel', 'confirmed'].map(k => `<button onclick='quick(${js(k)})' title="${esc(state.templateLabels[k])}">${esc({ eta: '⏱ ETA', askCancel: 'Reply CANCEL to cancel', confirmed: 'Confirmed ✓' }[k])}</button>`).join('')}</div>` : ''}
+      <div class="composer"><textarea id="draft" rows="1" placeholder="Text ${esc(r ? r.first : fmtPhone(phone))}…" onkeydown="draftKey(event)"></textarea><button class="send" onclick="sendDraft()" title="Send" ${sendBusy ? 'disabled' : ''}>${sendBusy ? '…' : '↑'}</button></div>`;
+    $('draft').value = draft;
+    const feed = $('feed'); feed.scrollTop = feed.scrollHeight;
+  }
+  // Reactions ("Loved “…”", "Liked “…”", "❤️ to “…”", "Reacted 🔥 to “…”") show as a badge on the message they
+  // react to, like a messaging app, instead of their own bubble. Removing a reaction takes the badge off.
+  const RX_WORD = { loved: '❤️', liked: '👍', disliked: '👎', 'laughed at': '😂', emphasized: '‼️', emphasised: '‼️', questioned: '❓' };
+  function parseReaction(body) {
+    const t = String(body || '').replace(/[ ​⁠]/g, '').trim();
+    const m = /^(loved|liked|disliked|laughed at|emphasi[sz]ed|questioned|reacted\s+(\S{1,12})\s+to|removed\s+(?:an?\s+)?(.{1,20}?)\s+from|([^\sA-Za-z0-9]{1,8})\s*to)\s*[“"'‘]([\s\S]*?)[”"'’]?\s*$/iu.exec(t);
+    if (!m) return null;
+    const head = m[1].toLowerCase(), removed = /^removed/.test(head);
+    const REMOVED_NAME = { heart: '❤️', like: '👍', dislike: '👎', laugh: '😂', exclamation: '‼️', 'exclamation mark': '‼️', emphasis: '‼️', 'question mark': '❓', question: '❓' };
+    const emoji = removed ? (REMOVED_NAME[(m[3] || '').toLowerCase().trim()] || m[3] || '') : RX_WORD[head] || m[2] || m[4] || '❤️';
+    return { emoji, removed, quoted: m[5] };
+  }
+  const normMsg = s => String(s || '').replace(/[ ​⁠]/g, '').replace(/[“”"'‘’…]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+  function withReactions(msgs) {
+    const out = [];
+    msgs.forEach(m => {
+      const rx = m.dir === 'in' && parseReaction(m.body);
+      if (!rx) { out.push(Object.assign({}, m, { rx: [] })); return; }
+      const q = normMsg(rx.quoted);
+      const target = out.slice().reverse().find(x => x.dir !== m.dir && q && (normMsg(x.body) === q || normMsg(x.body).startsWith(q) || q.startsWith(normMsg(x.body))));
+      if (!target) { out.push(Object.assign({}, m, { rx: [], rxLine: rx.removed ? '' : `${rx.emoji} reacted to a message` })); return; }
+      if (rx.removed) target.rx = target.rx.filter(e => e !== rx.emoji && !(rx.emoji && e.startsWith(rx.emoji)));
+      else if (!target.rx.includes(rx.emoji)) target.rx.push(rx.emoji);
+    });
+    return out.filter(m => !(m.rxLine === ''));
+  }
+  function bubble(m) {
+    if (m.rxLine) return `<div class="rx-line">${esc(m.rxLine)} · ${clock(m.ts)}</div>`;
+    const me = m.dir === 'out';
+    const st = me ? { saving: 'Sending…', queued: 'Waiting to send', sending: 'Sending…', sent: 'Delivered to the phone', failed: 'Not sent', unknown: 'Not confirmed — check the phone' }[m.st] || '' : '';
+    const retry = me && (m.st === 'failed' || m.st === 'unknown') ? `<button onclick='retry(${js(m.outId)}, ${js(m.st)})' ${working.has('retry:' + m.outId) ? 'disabled' : ''}>${working.has('retry:' + m.outId) ? 'Sending…' : 'Resend'}</button>` : '';
+    const cancel = me && m.st === 'queued' ? `<button onclick='act("cancelQueued", ${js(m.outId)})'>Don't send</button>` : '';
+    const fresh = !shownMsgs.has(m.id) && !(m.outId && shownMsgs.has('body:' + m.body)); shownMsgs.add(m.id); shownMsgs.add('body:' + m.body);
+    return `<div class="msg ${me ? 'me' : ''} ${me ? m.st : ''} ${fresh ? 'new' : ''}${m.rx && m.rx.length ? ' has-rx' : ''}"><div class="msg-b">${esc(m.body)}${m.rx && m.rx.length ? `<span class="rx-badge" title="Their reaction">${m.rx.map(esc).join('')}</span>` : ''}</div>
+      <div class="msg-t">${clock(m.ts)}${me && m.kind && m.kind !== 'manual' ? ' · auto' : ''}${st ? ' · ' + st : ''}${!me && m.intent ? `<span class="intent">${esc(m.intent)}</span>` : ''}${retry}${cancel}</div></div>`;
+  }
+
+  // ---------- actions ----------
+  let selectedPhone = null;
+  function select(id) { selected = id; selectedPhone = null; lastConvoSig = ''; renderRiders(); renderConvo(); }
+  function openFlag(fid) {
+    const f = state.flags.find(x => x.id === fid); if (!f) return;
+    if (f.rideId && rideById(f.rideId)) select(f.rideId);
+    else { selected = null; selectedPhone = f.phone; lastConvoSig = ''; renderRiders(); renderConvo(); }
+  }
+  // Runs fn with button `key` greyed out (and ignored if pressed again) until the server answers.
+  async function once(key, fn) {
+    if (working.has(key)) return;
+    working.add(key); lastConvoSig = ''; renderConvo();
+    try { return await fn(); } finally { working.delete(key); lastConvoSig = ''; renderConvo(); }
+  }
+  async function textRide(id) {
+    const r = rideById(id);
+    if (working.has('confirm:' + id)) return;
+    if (r.state === 'texted' && !(await ask(`Send ${r.first} the confirmation again?`, 'Resend'))) return;
+    await once('confirm:' + id, () => act('textRide', id)).then(() => toast(`Confirmation queued for ${r.first}`), () => {});
+  }
+  // Cancel + text: pick a reason → its text appears (edit it if you like) → confirm cancels the ride and sends it.
+  async function cancelText(id, preset, flagId) {
+    const r = rideById(id); if (!r) return;
+    const fillT = t => { const v = { first: r.first, pickup: r.pickupName, dropoff: r.dropoffName, eta: r.eta || state.eta, row: r.row }; return String(t).replace(/\{(first|pickup|dropoff|eta|row)\}/g, (x, k) => v[k]); };
+    const pick = preset || (r.offPickup ? (r.dropoffOnly ? 'cx_dropoffonly' : 'cx_offcampus') : '');
+    const html = `<select id="cxKind" style="width:100%;margin-top:10px">${pick ? '' : '<option value="">Reason…</option>'}${state.cancelNotices.map(c => `<option value="${esc(c.key)}" ${c.key === pick ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+      <div class="muted" id="cxSheet" style="margin:6px 2px 4px"></div>
+      <textarea id="cxText" rows="5" placeholder="The text ${esc(r.first)} gets"></textarea>
+      <div class="muted" style="margin-top:4px">To ${esc(fmtPhone(r.phone10))} from the UT iPhone. You can edit it before sending.</div>`;
+    const answer = ask(`Cancel ${r.first}'s ride (row ${r.row}, ${r.pickupName} → ${r.dropoffName}) and text them?`, 'Cancel ride & send text', html);
+    const kindEl = $('cxKind'), textEl = $('cxText');
+    const fillFor = k => { const c = state.cancelNotices.find(x => x.key === k);
+      $('cxSheet').textContent = c ? `Sheet reason: ${c.reason}` : '';
+      if (c) textEl.value = fillT(state.templates[k] || ''); };
+    kindEl.onchange = () => fillFor(kindEl.value);
+    fillFor(kindEl.value);
+    setTimeout(() => textEl.focus(), 350);
+    if (!(await answer)) return;
+    const k = $('cxKind').value, body = $('cxText').value.trim();
+    if (!k) return toast('Pick a reason first.', 'warn');
+    if (!body) return toast('Write the text first.', 'warn');
+    try {
+      await act('cancelRideAndText', id, k, body);
+      if (flagId) act('markHandled', flagId).catch(() => {});
+      toast(`Cancelled ${r.first} — text on its way`);
+    } catch (e) { /* act showed the error */ }
+  }
+  async function notAda(id) {
+    const r = rideById(id); if (!r) return;
+    if (!(await ask(`${r.first} doesn't need ADA? Row ${r.row}'s ADA column becomes No, so dispatch sends a regular vehicle. No text is sent.`, 'Not ADA'))) return;
+    await act('markNotAda', id); toast(`${r.first} is no longer an ADA ride`);
+  }
+  async function dupQuiet(id) {
+    const r = rideById(id);
+    if (!(await ask(`Mark ${r.first}'s ride (row ${r.row}) as a duplicate? The row turns red in the sheet. No text is sent.`, 'Mark duplicate'))) return;
+    await act('markDuplicateRide', id); toast(`Marked ${r.first} duplicate — no text sent`);
+  }
+  async function retry(outId, st) {
+    if (working.has('retry:' + outId)) return;
+    if (st === 'unknown' && !(await ask("The phone never confirmed this text. Check the iPhone's Messages first — send it again?", 'Resend'))) return;
+    await once('retry:' + outId, () => act('retryOut', outId)).catch(() => {});
+  }
+  function quick(kind) {
+    const r = rideById(selected); if (!r) return;
+    const v = { first: r.first, pickup: r.pickupName, dropoff: r.dropoffName, eta: r.eta || state.eta, row: r.row };
+    $('draft').value = state.templates[kind].replace(/\{(first|pickup|dropoff|eta|row)\}/g, (x, k) => v[k]);
+    $('draft').focus();
+  }
+  function draftKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendDraft(); } }
+  async function sendDraft() {
+    const text = $('draft').value.trim(); if (!text || sendBusy) return;
+    const r = selected && rideById(selected), phone = r ? r.phone10 : selectedPhone;
+    const local = { id: 'local' + Date.now(), dir: 'out', phone, body: text, ts: Date.now(), st: 'saving', kind: 'manual' };
+    pendingSends.push(local); sendBusy = true;
+    $('draft').value = ''; lastConvoSig = ''; renderConvo();
+    try { selected ? await act('sendText', selected, text) : await act('sendToNumber', selectedPhone, text); }
+    catch (e) { if (!$('draft').value) $('draft').value = text; } // not saved: your text is back in the box
+    finally { pendingSends = pendingSends.filter(m => m !== local); sendBusy = false; lastConvoSig = ''; renderConvo(); if ($('draft')) $('draft').focus(); }
+  }
+  async function toggleSetting(name) {
+    const on = name === 'TX_TEXTING' ? !state.texting : !state.autoText;
+    if (name === 'TX_AUTOTEXT' && on && !(await ask('Auto-text: every new ride (not duplicates, off-campus pickups or repeat requests) gets the confirmation text right away. Turn it on?', 'Turn on'))) return;
+    if (name === 'TX_TEXTING' && !on && !(await ask('Stop all texts, including replies to riders? Texts wait in the queue until you turn it back on.', 'Stop texting'))) return;
+    const sw = name === 'TX_AUTOTEXT' && $('autoBtn').querySelector('.sw');
+    if (sw) sw.classList.toggle('on', on); // flips right away; the server's answer confirms it
+    await act('setToggle', name, on).catch(() => render());
+    if (!$('settingsSheet').hidden) renderSettings();
+  }
+  async function setup() { busy++; try { await withFeedback(() => call('setupTexts')); toast('Set up — copy the bridge key from Settings → Bridge'); } catch (e) { toast(e.message, 'err'); } finally { busy--; refresh(true); } }
+
+  // ---------- alerts ----------
+  let audioCtx = null;
+  document.addEventListener('pointerdown', () => { try { audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); } catch (e) { /* no audio */ } }, { capture: true });
+  function chime(urgent) {
+    if (!prefs.sound) return;
+    try {
+      const ctx = audioCtx || (audioCtx = new (window.AudioContext || window.webkitAudioContext)());
+      (urgent ? [[660, 0], [520, 0.16], [660, 0.32]] : [[880, 0], [1320, 0.14]]).forEach(([f, at]) => {
+        const o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime + at;
+        o.frequency.value = f; g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.25, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+        o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + 0.25);
+      });
+    } catch (e) { /* no audio */ }
+  }
+  function watchFlags() {
+    const ids = new Set(state.flags.map(f => f.id));
+    if (seenFlags) {
+      const fresh = state.flags.filter(f => !seenFlags.has(f.id));
+      if (fresh.length) { const f = fresh[fresh.length - 1]; toast(`🙋 ${f.kind}: ${f.text || f.note}`.slice(0, 120), f.urgent ? 'err' : 'warn'); chime(true); }
+    }
+    seenFlags = ids;
+  }
+  let toastTimer = null;
+  function toast(text, kind) {
+    const t = $('toast'); t.textContent = text; t.className = 'toast ' + (kind || ''); t.hidden = false;
+    void t.offsetWidth; t.classList.add('shown');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.classList.remove('shown'); setTimeout(() => { t.hidden = true; }, 400); }, 6000);
+  }
+  let askResolve = null;
+  function ask(text, ok, extraHtml) { askOrigin = pressedButton(); $('askText').textContent = text; $('askExtra').innerHTML = extraHtml || ''; $('askOk').textContent = ok || 'OK'; const s = $('askSheet'); s.hidden = false; void s.offsetWidth; s.classList.add('shown'); return new Promise(r => { askResolve = r; }); }
+  function answer(yes) { const s = $('askSheet'); s.classList.remove('shown'); setTimeout(() => { s.hidden = true; }, 300); if (askResolve) { const r = askResolve; askResolve = null; r(yes); } }
+
+  // ---------- settings ----------
+  const ACCENTS = [{ name: 'Burnt orange', l: '#bf5700', d: '#d9661f' }, { name: 'Blue', l: '#007aff', d: '#0a84ff' }, { name: 'Green', l: '#248a3d', d: '#30d158' },
+    { name: 'Purple', l: '#8944ab', d: '#bf5af2' }, { name: 'Pink', l: '#e0245e', d: '#ff375f' }, { name: 'Teal', l: '#00829b', d: '#2aa4bd' }];
+  let keyShown = '';
+  /* ---------- 📊 Metrics: what happened to the rides we texted (from the Messages log) ---------- */
+  let metData = null, metRange = 7;
+  const MET = [ // outcome of each texted ride: fixed order, fixed colors (validated categorical slots 1–3 + a neutral remainder)
+    { k: 'confirmed', label: 'Confirmed (YES)', color: 'var(--m-yes)' },
+    { k: 'cancelled', label: 'Cancelled by text', color: 'var(--m-cancel)' },
+    { k: 'other', label: 'Other reply', color: 'var(--m-other)' },
+    { k: 'noReply', label: 'No reply', color: 'var(--m-none)' },
+  ];
+  async function openMetrics() {
+    const s = $('metricsSheet'); s.hidden = false; void s.offsetWidth; s.classList.add('shown');
+    if (!metData) $('metBody').innerHTML = '<div class="muted" style="padding:24px 4px">Loading…</div>'; else renderMetrics();
+    try { metData = await call('getMetrics', 60); renderMetrics(); }
+    catch (e) { $('metBody').innerHTML = `<div class="muted" style="padding:24px 4px">Couldn't load the metrics: ${esc(e.message || e)}</div>`; }
+  }
+  function closeMetrics() { const s = $('metricsSheet'); s.classList.remove('shown'); $('metTip').hidden = true; setTimeout(() => { s.hidden = true; }, 350); }
+  function setMetRange(n) { metRange = n; renderMetrics(); }
+  const pct = (n, d) => (d ? Math.round(100 * n / d) + '%' : '—');
+  // Seconds as people say it: "36 sec", "2 min 24 sec", "14 min".
+  const dur = s => { s = Math.round(s); if (s < 60) return `${s} sec`; const m = Math.floor(s / 60), r = s % 60; return m >= 10 || !r ? `${m} min` : `${m} min ${r} sec`; };
+  const median = a => { if (!a.length) return null; const s = a.slice().sort((x, y) => x - y), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  // An operating night (7 PM – 2 AM) is keyed by the date it starts: "Sun, Nov 8 → Mon".
+  const nightLabel = k => { const d = new Date(k + 'T12:00:00'); if (isNaN(d)) return k; const n = new Date(d.getTime() + 864e5);
+    return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) + ' → ' + n.toLocaleDateString(undefined, { weekday: 'short' }); };
+  function metBar(m, mini) {
+    if (!m.texted) return `<div class="met-bar${mini ? ' mini' : ''}"></div>`;
+    return `<div class="met-bar${mini ? ' mini' : ''}" role="img" aria-label="${esc(MET.map(o => `${o.label} ${m[o.k]}`).join(', '))}">${MET.filter(o => m[o.k]).map(o =>
+      `<i style="flex:${m[o.k]};background:${o.color}" data-tip="${esc(`${o.label}: ${m[o.k]} of ${m.texted} (${pct(m[o.k], m.texted)})`)}"></i>`).join('')}</div>`;
+  }
+  function renderMetrics() {
+    if (!metData) return;
+    const nights = metData.nights.slice(0, metRange);
+    const t = nights.reduce((a, n) => { Object.keys(n).forEach(k => { if (typeof n[k] === 'number') a[k] = (a[k] || 0) + n[k]; }); a.replySecs = a.replySecs.concat(n.replySecs || []); return a; }, { replySecs: [] });
+    const replied = (t.confirmed || 0) + (t.cancelled || 0) + (t.other || 0), med = median(t.replySecs);
+    const span = nights.length ? (nights.length > 1 ? `${nightLabel(nights[nights.length - 1].night).split(' → ')[0]} – ${nightLabel(nights[0].night)}` : nightLabel(nights[0].night)) : 'no texts yet';
+    const tile = (k, v, sub) => `<div class="met-tile"><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+    const seg = [[1, 'Latest night'], [7, 'Last 7 nights'], [30, 'Last 30 nights']].map(([n, l]) => `<button class="${metRange === n ? 'on' : ''}" onclick="setMetRange(${n})">${l}</button>`).join('');
+    $('metBody').innerHTML = `
+      <div class="met-top"><div class="seg">${seg}</div><span class="muted">${esc(span)} · ${nights.length} night${nights.length === 1 ? '' : 's'} with texts · nights run 7 PM – 2 AM</span></div>
+      <div class="met-tiles">
+        ${tile('Rides texted', t.texted || 0, 'got a confirmation text')}
+        ${tile('Replied', pct(replied, t.texted), `${replied} of ${t.texted || 0}`)}
+        ${tile('Confirmed (YES)', pct(t.confirmed, t.texted), `${t.confirmed || 0} riders`)}
+        ${tile('Cancelled by text', pct(t.cancelled, t.texted), `${t.cancelled || 0} riders`)}
+        ${tile('No reply', pct(t.noReply, t.texted), `${t.noReply || 0} riders` + (t.cancelledNoReply ? ` · ${t.cancelledNoReply} cancelled before replying not counted` : ''))}
+        ${tile('Median reply time', med == null ? '—' : dur(med), 'after our text')}
+        ${tile('Opted out (STOP)', t.optOuts || 0, '')}
+      </div>
+      <div class="met-panel"><h4>What happened to the rides we texted</h4>
+        ${metBar(t)}
+        <div class="met-legend">${MET.map(o => `<span><i class="met-sw" style="background:${o.color}"></i>${o.label} <b>${t[o.k] || 0}</b> · ${pct(t[o.k], t.texted)}</span>`).join('')}</div>
+      </div>
+      <div class="met-panel"><h4>By night</h4><div class="met-scroll"><table class="met-table">
+        <thead><tr><th>Night</th><th>Texted</th><th>Replied</th><th>Confirmed</th><th>Cancelled</th><th>No reply</th><th>Median reply</th><th>STOP</th><th>Failed texts</th><th class="bar">Outcomes</th></tr></thead>
+        <tbody>${nights.map(n => { const r = n.confirmed + n.cancelled + n.other, md = median(n.replySecs || []); return `<tr>
+          <td>${esc(nightLabel(n.night))}</td><td>${n.texted}</td><td>${pct(r, n.texted)}</td><td>${pct(n.confirmed, n.texted)}</td><td>${pct(n.cancelled, n.texted)}</td>
+          <td>${pct(n.noReply, n.texted)}</td><td>${md == null ? '—' : dur(md)}</td><td>${n.optOuts}</td><td>${n.failed}</td><td class="bar">${metBar(n, true)}</td></tr>`; }).join('') ||
+          '<tr><td colspan="10" class="muted" style="text-align:left">No texts logged yet.</td></tr>'}</tbody></table></div></div>
+      <div class="met-panel met-other"><h4>Other texts</h4>
+        Texts sent <b>${t.sent || 0}</b> · failed <b>${t.failed || 0}</b> · replies received <b>${t.inbound || 0}</b> ·
+        cancel notices <b>${t.cancelNotices || 0}</b> · clarifying questions <b>${t.clarifyAsks || 0}</b> · ETA answers <b>${t.etaAnswers || 0}</b> · hours tips <b>${t.hoursTips || 0}</b>
+      </div>`;
+  }
+  // Hover a bar segment: its count and share.
+  document.addEventListener('mousemove', e => {
+    const tip = $('metTip'), el = e.target.closest && e.target.closest('[data-tip]');
+    if (!el || $('metricsSheet').hidden) { if (tip && !tip.hidden) tip.hidden = true; return; }
+    tip.textContent = el.dataset.tip; tip.hidden = false;
+    tip.style.left = Math.min(innerWidth - tip.offsetWidth - 8, e.clientX + 12) + 'px'; tip.style.top = (e.clientY - tip.offsetHeight - 10) + 'px';
+  });
+  let setCategory = (() => { try { return sessionStorage.getItem('textsSetCat') || 'look'; } catch (e) { return 'look'; } })(); // the last category, for this session
+  const SET_CATEGORIES = [
+    { id: 'look', label: 'Appearance', icon: '🎨' },
+    { id: 'alerts', label: 'Alerts', icon: '🔔' },
+    { id: 'texts', label: 'Texts riders get', icon: '💬' },
+    { id: 'timing', label: 'Timing', icon: '⏱' },
+    { id: 'bridge', label: 'Bridge', icon: '📱' },
+    { id: 'test', label: 'Test & Tinker', icon: '🧪' },
+    { id: 'logs', label: 'Logs', icon: '📄' },
+  ];
+
+  function openSettings(section) {
+    const s = $('settingsSheet');
+    if (section) { setCategory = section; try { sessionStorage.setItem('textsSetCat', section); } catch (e) {} }
+    renderSettings();
+    s.hidden = false;
+    void s.offsetWidth;
+    s.classList.add('shown');
+  }
+  function closeSettings() { const s = $('settingsSheet'); s.classList.remove('shown'); setTimeout(() => { s.hidden = true; }, 350); keyShown = ''; }
+  function setPref(k, v) {
+    prefs[k] = v; savePrefsLocal();
+    if (k === 'theme') { if (v === 'system') delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = v; }
+    if (k === 'accent') { document.documentElement.style.setProperty('--accent-l', v.l); document.documentElement.style.setProperty('--accent-d', v.d); }
+    call('savePrefs', { theme: prefs.theme, accent: prefs.accent, sound: prefs.sound }).catch(() => {});
+    renderSettings();
+  }
+  const SAMPLE = { first: 'Maliha', pickupName: 'PCL', dropoffName: 'Jester', row: 812 };
+  function preview(t) { const v = { first: SAMPLE.first, pickup: SAMPLE.pickupName, dropoff: SAMPLE.dropoffName, eta: state.eta, row: SAMPLE.row }; return String(t).replace(/\{(first|pickup|dropoff|eta|row)\}/g, (x, k) => v[k]); }
+  function renderSettings() {
+    if (!state) return;
+    const b = state.bridge;
+
+    $('setNav').innerHTML = SET_CATEGORIES.map(c => `
+      <button class="${setCategory === c.id ? 'on' : ''}" onclick="setCategory='${c.id}'; try { sessionStorage.setItem('textsSetCat', setCategory); } catch (e) {} renderSettings()"${setCategory === c.id ? ' aria-current="page"' : ''}>
+        <span>${c.icon}</span> ${c.label}
+      </button>
+    `).join('') + `<div class="set-ver" id="setVersion">Version: ${typeof BUILD_ID !== 'undefined' ? BUILD_ID : PAGE_VERSION}</div>`;
+
+    let paneHtml = '';
+    if (setCategory === 'look') {
+      paneHtml = `
+        <section class="set-pane">
+          <h3>Appearance</h3>
+          <div class="set-group">
+            <div class="set-row">
+              <span>Theme</span>
+              <div class="seg" style="margin:0">${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([k, l]) => `<button class="${prefs.theme === k ? 'on' : ''}" onclick="setPref('theme', '${k}')">${l}</button>`).join('')}</div>
+            </div>
+            <div class="accents">${ACCENTS.map(a => `<button class="acc ${(prefs.accent ? prefs.accent.l : '#bf5700') === a.l ? 'on' : ''}" style="background:${a.l}" title="${a.name}" onclick='setPref("accent", ${JSON.stringify(a)})'></button>`).join('')}</div>
+          </div>
+        </section>
+      `;
+    } else if (setCategory === 'alerts') {
+      paneHtml = `
+        <section class="set-pane">
+          <h3>Alerts</h3>
+          <div class="set-group">
+            <div class="set-row"><span>🔔 Sound when something needs you</span><span class="sw ${prefs.sound ? 'on' : ''}" onclick="setPref('sound', ${!prefs.sound})" style="cursor:pointer"></span></div>
+          </div>
+          <div class="set-note">Plays when a rider lands in Needs a look.</div>
+        </section>
+      `;
+    } else if (setCategory === 'texts') {
+      paneHtml = `
+        <section class="set-pane">
+          <h3>Texts riders get</h3>
+          <div class="set-note" style="margin-bottom:6px">When the new-ride text goes out, that time is written to the ride's Call Time (if it's blank).</div>
+          <div class="set-group">${Object.keys(state.templates).map(k => `<div class="tpl"><label>${esc(state.templateLabels[k] || k)}</label>
+            <textarea id="tpl-${k}" rows="2" oninput="$('prev-${k}').textContent = preview(this.value)">${esc(state.templates[k])}</textarea>
+            <div class="prev" id="prev-${k}">${esc(preview(state.templates[k]))}</div></div>`).join('')}
+            <div class="set-row"><span class="muted">Fill-ins: {first} {pickup} {dropoff} {eta} {row}</span><button class="primary" onclick="saveTemplates()">Save texts</button></div>
+          </div>
+          <div class="set-note">Replies the app understands: YES / ok (confirms), CANCEL / nvm / got a ride (cancels the ride in the sheet), "no" (asks them to reply CANCEL), "where / how long" (ETA), STOP (no more texts), thanks (no reply). Anything else goes to Needs a look.</div>
+        </section>
+      `;
+    } else if (setCategory === 'timing') {
+      paneHtml = `
+        <section class="set-pane">
+          <h3>Timing</h3>
+          <div class="set-group">
+            <div class="set-row"><span>Texting on. Turn off only to stop every text, even replies (they wait in the queue)</span>
+              <span class="sw ${state.texting ? 'on' : ''}" style="cursor:pointer" onclick="toggleSetting('TX_TEXTING')"></span></div>
+            <div class="set-row"><span>After 2:00 AM, new requests are cancelled automatically (After Deadline). Text them the "After closing" message</span>
+              <span class="sw ${state.lateNotice ? 'on' : ''}" style="cursor:pointer" onclick="act('setToggle', 'TX_LATE_NOTICE', ${!state.lateNotice}).then(renderSettings)"></span></div>
+            <div class="set-row"><span>Text confirmed riders the 3-question poll (once per phone number, ever). Test polls work either way</span>
+              <span class="sw ${state.riderPoll ? 'on' : ''}" style="cursor:pointer" onclick="act('setToggle', 'TX_POLL', ${!state.riderPoll}).then(renderSettings)"></span></div>
+            <div class="set-row"><span>Show "No reply" after</span><input type="number" min="2" max="60" value="${state.noReplyMin}" style="width:80px" onchange="act('setNoReplyMin', this.value)"> min</div>
+          </div>
+        </section>
+      `;
+    } else if (setCategory === 'bridge') {
+      paneHtml = `
+        <section class="set-pane">
+          <h3>Bridge (the PC with the UT iPhone)</h3>
+          <div class="set-group">
+            <div class="set-row"><span>${!b ? 'The bridge has never connected.' : `Last heard ${ago(b.at)} · phone ${b.connected ? 'connected' : 'not connected'}${b.version ? ' · v' + esc(b.version) : ''}${b.error ? ' · ' + esc(b.error) : ''}`}</span></div>
+            <div class="set-row"><span>Bridge key ${keyShown ? `<br><code class="key">${esc(keyShown)}</code>` : ''}</span>
+              ${keyShown ? `<button onclick="copyKey()">Copy</button>` : `<button onclick="showKey()">Show</button>`}<button class="danger" onclick="newKey()">New key</button></div>
+          </div>
+          <div class="set-note">On the PC: <code>python -m surewalk_bridge config &lt;Bridge API URL&gt; &lt;key&gt;</code>, then <code>systemctl --user start surewalk-bridge</code>. Anyone with the key and the Bridge API URL can read and text riders through this app — keep it private.</div>
+        </section>
+      `;
+    } else if (setCategory === 'test') {
+      paneHtml = `
+        <section class="set-pane">
+          <h3>Test &amp; Tinker</h3>
+          <div class="set-note" style="margin-bottom:6px">Send test messages to your own phone to preview how texts look and test the interactive poll.</div>
+          <div class="set-group">
+            <div class="set-row">
+              <span style="font-weight:600">Your phone number</span>
+              <input id="testNum" placeholder="10-digit number" style="width:180px" oninput="syncTestNum(this.value)">
+            </div>
+            <div class="set-row">
+              <span>Test text</span>
+              <input id="testText" value="SURE Walk Texts test ✔" style="flex:1;min-width:160px">
+              <button id="testBtn" onclick="testSend()">Send text</button>
+            </div>
+            <div class="set-row" style="align-items:flex-start">
+              <div style="flex:1">
+                <span style="display:block;font-weight:500">Test poll (3 questions)</span>
+                <span class="muted small">Sends question 1/3 — reply from your phone to test the whole poll flow</span>
+              </div>
+              <button class="primary" id="testPollBtn" onclick="testPoll()">Send poll</button>
+            </div>
+          </div>
+        </section>
+      `;
+    } else if (setCategory === 'logs') {
+      paneHtml = `
+        <section class="set-pane">
+          <h3>Logs &amp; Sheets</h3>
+          <div class="set-group">
+            ${state.sheetUrl ? `<div class="set-row"><span>Every text in and out</span><a href="${esc(state.sheetUrl)}" target="_blank">Open "SURE Walk Texts"</a></div>` : ''}
+            ${state.pollUrl ? `<div class="set-row"><span>Rider survey answers</span><a href="${esc(state.pollUrl)}" target="_blank">Open "SURE Walk Poll"</a></div>` : ''}
+            ${state.etaUrl ? `<div class="set-row"><span>Predicted vs. real wait for each ride (to refine the ETA)</span><a href="${esc(state.etaUrl)}" target="_blank">Open "SURE Walk ETA"</a></div>` : ''}
+            ${!state.setUp ? `<div class="set-row"><span>Not set up yet</span><button class="primary" onclick="setup()">Set up texting</button></div>` : ''}
+          </div>
+        </section>
+      `;
+    }
+
+    $('setBody').innerHTML = paneHtml;
+    try {
+      const savedNum = localStorage.getItem('swt_test_num') || '';
+      if (savedNum && $('testNum')) $('testNum').value = savedNum;
+    } catch (e) {}
+  }
+  async function saveTemplates() {
+    const t = {}; Object.keys(state.templates).forEach(k => { t[k] = $('tpl-' + k).value; });
+    await act('saveTemplates', t); toast('Saved'); renderSettings();
+  }
+  async function showKey() { keyShown = await withFeedback(() => call('getBridgeKey')); renderSettings(); }
+  async function copyKey() { try { await navigator.clipboard.writeText(keyShown); toast('Key copied'); } catch (e) { toast('Select the key and copy it', 'warn'); } }
+  async function newKey() {
+    if (!(await ask('Make a new bridge key? The bridge stops working until you put the new key in its config.', 'New key'))) return;
+    keyShown = await withFeedback(() => call('regenerateKey')); renderSettings();
+  }
+  function syncTestNum(v) {
+    try { localStorage.setItem('swt_test_num', v); } catch (e) {}
+  }
+  async function testSend() {
+    const btn = $('testBtn'); if (!btn || btn.disabled) return;
+    const num = ($('testNum') ? $('testNum').value : '').trim();
+    if (!num) return toast('Enter your phone number first', 'warn');
+    syncTestNum(num);
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try { await act('sendToNumber', num, $('testText').value); toast('Test text queued — watch your phone'); }
+    catch (e) { /* act showed the error */ }
+    finally { btn.disabled = false; btn.textContent = 'Send text'; }
+  }
+  async function testPoll() {
+    const btn = $('testPollBtn'); if (!btn || btn.disabled) return;
+    const num = ($('testNum') ? $('testNum').value : '').trim();
+    if (!num) return toast('Enter your phone number first', 'warn');
+    syncTestNum(num);
+    btn.disabled = true; btn.textContent = 'Sending poll…';
+    try { await act('sendTestPoll', num); toast('Poll question 1/3 queued — reply from your phone!'); }
+    catch (e) { /* act showed the error */ }
+    finally { btn.disabled = false; btn.textContent = 'Send poll'; }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape' || (window.ddOpen && ddOpen())) return;
+    if (!$('askSheet').hidden) answer(false);
+    else if (!$('settingsSheet').hidden) closeSettings();
+    else if (!$('metricsSheet').hidden) closeMetrics();
+  });
+  if (prefs.theme && prefs.theme !== 'system') document.documentElement.dataset.theme = prefs.theme;
+  refresh(true);
+</script>
+<style>
+  /* Our own dropdown list (instead of Chrome's white one): same card, colors and type as the rest of the panel */
+  .dd-menu { position: fixed; z-index: 1000; background: var(--card); color: var(--text); border-radius: 12px; padding: 5px;
+             box-shadow: 0 12px 34px rgba(0,0,0,.28), 0 0 0 .5px var(--sep); max-height: 320px; overflow-y: auto;
+             font-size: 14px; min-width: 150px; animation: dd-in .12s ease-out; }
+  @keyframes dd-in { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+  .dd-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 10px; border-radius: 8px; cursor: pointer; white-space: nowrap; }
+  .dd-item::before { content: ""; width: 14px; flex: none; text-align: center; color: var(--accent); font-weight: 700; }
+  .dd-item.on::before { content: "✓"; }
+  .dd-item.on { font-weight: 600; }
+  .dd-item.hi { background: var(--accent-bg); }
+  .dd-item.ph { color: var(--muted); }
+  .dd-item.off { opacity: .4; cursor: default; }
+  select.dd-open { box-shadow: 0 0 0 2px var(--accent); }
+  /* If Chrome's own list shows (a finger tap), it takes the options' colors: make them solid, not see-through */
+  select option, select optgroup { background-color: var(--card); color: var(--text); }
+</style>
+<script>
+  /* Custom dropdowns: every <select> keeps working as before (its value, onchange, arrow keys), but clicking it
+     (or Space / Enter / Alt+↓) opens this list in the panel's own style. Phones keep their native picker. */
+  (function customDropdowns() {
+    let menu = null, cur = null, hi = -1, lastPointer = 'mouse';
+    // A finger keeps the native picker (better on touch); a mouse / trackpad / pen gets our list. Decided per click,
+    // not by the device: touchscreen laptops (common on Windows) report a "coarse" pointer even when you use the trackpad.
+    document.addEventListener('pointerdown', e => { lastPointer = e.pointerType || 'mouse'; }, true);
+    const byFinger = e => lastPointer === 'touch' || !!(e.sourceCapabilities && e.sourceCapabilities.firesTouchEvents);
+    const escH = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+    window.ddOpen = () => !!menu;
+    function close() {
+      if (menu) { menu.remove(); menu = null; }
+      if (cur) { cur.classList.remove('dd-open'); cur = null; }
+    }
+    function mark(i) {
+      hi = i;
+      menu.querySelectorAll('.dd-item').forEach(el => el.classList.toggle('hi', +el.dataset.i === i));
+      const el = menu.querySelector(`.dd-item[data-i="${i}"]`);
+      if (el) { if (el.offsetTop < menu.scrollTop) menu.scrollTop = el.offsetTop - 5; else if (el.offsetTop + el.offsetHeight > menu.scrollTop + menu.clientHeight) menu.scrollTop = el.offsetTop + el.offsetHeight - menu.clientHeight + 5; }
+    }
+    function choose(i) {
+      const sel = cur, opt = sel && sel.options[i];
+      close();
+      if (!opt || opt.disabled || !document.contains(sel)) return;
+      if (sel.selectedIndex !== i) {
+        sel.selectedIndex = i;
+        sel.dispatchEvent(new Event('input', { bubbles: true }));
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      try { sel.focus({ preventScroll: true }); } catch (e) { /* gone */ }
+    }
+    function open(sel) {
+      close();
+      cur = sel; sel.classList.add('dd-open');
+      menu = document.createElement('div');
+      menu.className = 'dd-menu'; menu.setAttribute('role', 'listbox');
+      menu.innerHTML = [...sel.options].map((o, i) => `<div class="dd-item${i === sel.selectedIndex ? ' on' : ''}${o.disabled ? ' off' : ''}${!o.value && i === 0 ? ' ph' : ''}" role="option" data-i="${i}">${escH(o.text)}</div>`).join('');
+      document.body.appendChild(menu);
+      place();
+      mark(Math.max(0, sel.selectedIndex));
+    }
+    // Under the dropdown (above it when there's no room below), kept on screen; follows it if the page scrolls.
+    function place() {
+      if (!menu || !cur) return;
+      if (!document.contains(cur)) return close();
+      const r = cur.getBoundingClientRect(), h = menu.offsetHeight, w = Math.max(r.width, menu.offsetWidth);
+      menu.style.minWidth = r.width + 'px';
+      menu.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left)) + 'px';
+      menu.style.top = Math.max(8, r.bottom + 4 + h > innerHeight - 8 && r.top - 4 - h > 8 ? r.top - 4 - h : Math.min(r.bottom + 4, innerHeight - h - 8)) + 'px';
+    }
+    const step = d => { const n = cur.options.length; let i = hi; for (let k = 0; k < n; k++) { i = (i + d + n) % n; if (!cur.options[i].disabled) return mark(i); } };
+    document.addEventListener('mousedown', e => {
+      const t = e.target, sel = t.closest && t.closest('select');
+      if (menu && !(t.closest && t.closest('.dd-menu')) && sel !== cur) close();
+      if (!sel || sel.multiple || sel.size > 1 || sel.disabled || e.button !== 0 || byFinger(e)) return;
+      e.preventDefault();
+      try { sel.focus({ preventScroll: true }); } catch (x) { /* fine */ }
+      if (cur === sel) close(); else open(sel);
+    }, true);
+    document.addEventListener('mousedown', e => { const it = e.target.closest && e.target.closest('.dd-item'); if (it && menu) { e.preventDefault(); choose(+it.dataset.i); } }, true);
+    document.addEventListener('mouseover', e => { const it = e.target.closest && e.target.closest('.dd-item'); if (it && menu) mark(+it.dataset.i); });
+    document.addEventListener('keydown', e => {
+      if (menu) {
+        if (!document.contains(cur)) return close();
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); step(e.key === 'ArrowDown' ? 1 : -1); }
+        else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(hi); }
+        else if (e.key === 'Tab') close();
+        return;
+      }
+      const sel = e.target;
+      if (sel && sel.tagName === 'SELECT' && (e.key === ' ' || e.key === 'Enter' || (e.altKey && e.key === 'ArrowDown'))) { e.preventDefault(); open(sel); }
+    }, true);
+    addEventListener('scroll', e => { if (menu && !menu.contains(e.target)) place(); }, true);
+    addEventListener('resize', close);
+    addEventListener('blur', close);
+  })();
+</script>
+<div id="newBuild" class="newbuild" hidden role="status">New version available — <a href="/" target="_top">Reload</a></div>
+<style>
+  .newbuild { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 900; background: var(--accent); color: #fff;
+              padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; box-shadow: 0 6px 20px rgba(0,0,0,.25); white-space: nowrap; }
+  .set-ver { padding: 8px 16px 12px; font-size: 12px; color: var(--muted); text-align: center; border-top: .5px solid var(--sep); }
+  .newbuild a { color: #fff; text-decoration: underline; margin-left: 4px; }
+</style>
+<script>
+  // deploy.sh stamps every deploy (BUILD_ID); a panel left open across a deploy notices the new stamp and asks for a reload.
+  let firstBuild_ = null, latestBuild_ = null;
+  // "2026-11-08 20:23:51" -> "Nov 8, 8:23 PM"
+  const fmtBuild = b => { const m = /^(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d)/.exec(b || ''); return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5]).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : b; };
+  function checkBuild(s) {
+    const line = document.getElementById('setVersion');
+    if (!s || !s.build) { if (line && s) line.textContent = 'Version: not deployed (preview)'; return; }
+    if (firstBuild_ === null) firstBuild_ = s.build;
+    latestBuild_ = s.build;
+    const newer = latestBuild_ !== firstBuild_;
+    if (newer) document.getElementById('newBuild').hidden = false;
+    if (line) line.textContent = `Version: ${fmtBuild(firstBuild_)}` + (newer ? ` — a newer version (${fmtBuild(latestBuild_)}) is out, reload` : '');
+  }
+</script>
+</body>
+</html>
