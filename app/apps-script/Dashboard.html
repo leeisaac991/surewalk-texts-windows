@@ -584,10 +584,11 @@
   document.addEventListener('keydown', e => {
     if ((IS_MAC ? e.metaKey : e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k') { e.preventDefault(); const q = $('search'); q.focus(); q.select(); }
   });
+  const multiChip = r => (state && r.phone10 && state.rides.filter(x => x.phone10 === r.phone10).length > 1 ? '<span class="chip" style="background:var(--accent-bg);color:var(--accent);font-weight:700" title="Multiple rides tonight for this phone number">Multi</span>' : '');
   function riderRow(r, opts) {
     opts = opts || {};
     return `<button type="button" class="rrow ${rowKind(r)} ${selected === r.id && !opts.inbox ? 'sel' : ''}" onclick='select(${js(r.id)})' aria-label="${esc(`${r.first} ${r.last || ''}, ${r.pickupName} to ${r.dropoffName}`)}"${selected === r.id && !opts.inbox ? ' aria-current="true"' : ''}>
-        <span class="rm"><span class="rl1"><span class="rn">${esc(r.first)} ${esc(r.last || '')}</span>${r.ada ? '<span class="ada-chip" title="ADA pickup: an ADA vehicle and a supervisor go along">♿ ADA</span>' : ''}${!opts.inbox && unread(r) ? '<span class="unread" title="New reply"></span>' : ''}${txIcon(r)}${stateChip(r)}${groupChip(r)}</span>
+        <span class="rm"><span class="rl1"><span class="rn">${esc(r.first)} ${esc(r.last || '')}</span>${r.ada ? '<span class="ada-chip" title="ADA pickup: an ADA vehicle and a supervisor go along">♿ ADA</span>' : ''}${multiChip(r)}${!opts.inbox && unread(r) ? '<span class="unread" title="New reply"></span>' : ''}${txIcon(r)}${stateChip(r)}${groupChip(r)}</span>
           <span class="route" style="display:block">${esc(r.pickupName)}<span class="arrow">→</span>${esc(r.dropoffName)}</span>
           <span class="meta" style="display:block">${metaLine(r, opts.note)}</span>
           ${opts.why ? `<span class="note" style="display:block"><b>${esc(opts.why)}</b></span>` : ''}</span></button>`;
@@ -814,8 +815,17 @@
       headerHtml = `<h2>${esc(fmtPhone(phone))}</h2><div class="cv-sub">Not a rider tonight</div>`;
     }
 
+    const phoneRides = (phone && state ? state.rides.filter(x => x.phone10 === phone) : []);
+    const multiBanner = phoneRides.length > 1
+      ? `<div class="multi-box" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0;padding:7px 12px;border-radius:10px;background:var(--accent-bg);font-size:13px">
+          <span>📱 <b>${phoneRides.length} rides tonight with this phone:</b></span>
+          ${phoneRides.map(x => `<button type="button" class="chip ${x.id === (r ? r.id : '') ? 'picked' : ''}" style="cursor:pointer;border:0;font:inherit" onclick="select('${x.id}')">Row ${x.row} · ${esc(x.pickupName)} → ${esc(x.dropoffName)} (${esc(x.state)})</button>`).join(' ')}
+        </div>`
+      : '';
+
     el.innerHTML = `<div class="cv-h">
         ${headerHtml}
+        ${multiBanner}
         ${r && r.note && !r.invalid ? `<div class="note">${esc(r.note)}</div>` : ''}
         ${r && r.group ? `<div class="note">👥 ${esc(r.group.letter ? 'Group ' + r.group.letter : 'Group (letter coming)')} with ${esc(r.group.members.filter(m => m.id !== r.id).map(m => `${m.first} (row ${m.row})`).join(', '))} — ${esc(r.group.both ? 'they named each other' : 'named by ' + r.group.members.filter(m => m.said).map(m => m.first).join(', ') + ' only')}. Change it in the calling panel.</div>` : ''}
         ${r && r.invalid ? `<div class="invalid-box"><span>⚠ <b>Invalid ride:</b> ${esc((state.cancelNotices.find(c => c.key === r.invalid) || {}).label || r.note)}. The cancel text is ready — review it, then approve to cancel the ride and send it.</span>

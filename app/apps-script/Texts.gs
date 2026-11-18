@@ -406,8 +406,14 @@ function scanRides_(tx, rides, wait) {
     else if (!r.phone10) { Object.assign(n, { state: 'flagged', note: 'No valid phone number' }); flag_(tx, 'No phone', r.id, '', r.phone, `${r.first} (row ${r.row}): "${r.phone}" isn't a phone number`); }
     else if (optOut.has(r.phone10)) Object.assign(n, { state: 'optedout', note: 'Replied STOP before' });
     else if (prev && rel === 'same') {
-      // The same route submitted again from the same number: a copy of the open request, not a change — no text, no flag.
+      // The same route submitted again from the same number: a copy of the open request, not a change — mark duplicate in the sheet too
+      try {
+        const sh = sheet_();
+        sh.getRange(rowOf_(sh, r), 1, 1, sh.getMaxColumns()).setBackground(DUPLICATE_COLOR);
+        try { CacheService.getScriptCache().removeAll(['rides', 'state_view']); } catch (e) {}
+      } catch (e) {}
       Object.assign(n, { state: 'duplicate', note: `Same request again (row ${prev.row})` });
+      logRow_({ dir: 'note', phone: r.phone10, rideId: r.id, row: r.row, name: r.first, note: `Marked duplicate (same request as row ${prev.row})` });
     }
     else if (prev && rel === 'newDropoff' && r.tsMs - prev.tsMs <= UPDATE_WINDOW_MIN * 60e3) {
       updateDropoff_(tx, prev, r, n); // same pickup, new drop-off soon after: the open ride is updated
@@ -768,6 +774,24 @@ function handleInbound_(tx, m, rides, wait, sh) {
     // Remember the reply on that ride anyway (it can be reopened; and it's no longer "No reply").
     const lrec = tx.rides[last.id];
     if (lrec) { lrec.lastInAt = ms; lrec.lastIntent = c.intent; if (c.intent === 'yes') lrec.saidYes = true; }
+    if (c.intent === 'cancel' && open.length) {
+      // Rider texted CANCEL when multiple open rides exist: cancel all un-assigned open rides!
+      let cancelledCount = 0;
+      open.filter(r => !r.driver).forEach(r => {
+        try {
+          cancelRow_(sh, rowOf_(sh, r), cancelReason_(m.text));
+          const rrec = tx.rides[r.id] || (tx.rides[r.id] = { row: r.row, first: r.first, phone10: from10 });
+          rrec.state = 'cancelled'; rrec.note = 'Cancelled by text: ' + cancelReason_(m.text);
+          dropQueued_(tx, r.id, 'Not sent — rider cancelled');
+          cancelledCount++;
+        } catch (e) {}
+      });
+      if (cancelledCount > 0) {
+        queue_(tx, { phone10: from10, id: last.id }, fill_(tpl.cancelled, last), 'cancelled');
+        tx.flags.filter(f => f.phone === from10 && f.kind === 'Updated request?' && !f.done).forEach(f => { f.done = true; });
+        return;
+      }
+    }
     if (distinct.length > 1) { flag_(tx, 'Which ride?', '', from10, inMsg.body, `${distinct.map(r => `row ${r.row} (${r.pickupName} → ${r.dropoffName})`).join(', ')} are all open for this number`); return; }
     // A yes / no / thanks / cancel to a ride that's already picked, cancelled or marked duplicate needs nothing from anyone.
     if (!['thanks', 'yes', 'no', 'cancel'].includes(c.intent)) flag_(tx, last.state === 'picked' ? 'After pickup' : 'Ride closed', last.id, from10, inMsg.body,
@@ -845,6 +869,20 @@ function handleInbound_(tx, m, rides, wait, sh) {
   if (c.intent === 'yes') {
     const already = rec.state === 'confirmed';
     rec.state = 'confirmed'; rec.confirmedAt = rec.confirmedAt || ms;
+    // Multiple rides under one phone: if there were other open duplicate requests for this phone (same route),
+    // mark them duplicate in the sheet and resolve their flags so they don't linger as open ghost rides!
+    if (from10) {
+      const dupRides = rides.filter(x => x.id !== ride.id && x.phone10 === from10 && x.state === 'open' && !x.driver && routeRelation_(ride, x) === 'same');
+      dupRides.forEach(d => {
+        try {
+          sh.getRange(rowOf_(sh, d), 1, 1, sh.getMaxColumns()).setBackground(DUPLICATE_COLOR);
+          const drec = tx.rides[d.id] || (tx.rides[d.id] = { row: d.row, first: d.first, phone10: from10 });
+          drec.state = 'duplicate'; drec.note = `Duplicate of row ${ride.row} (confirmed)`;
+          dropQueued_(tx, d.id, 'Not sent — duplicate of confirmed ride');
+        } catch (e) {}
+      });
+      tx.flags.filter(f => f.phone === from10 && f.kind === 'Updated request?' && !f.done && dupRides.some(d => d.id === f.rideId)).forEach(f => { f.done = true; });
+    }
     if (already) { // "Sure" / "ok" to something else after they confirmed: no second "you're confirmed!"
       if (c.extra) flag_(tx, 'Reply', ride.id, from10, inMsg.body, `${ride.first} (row ${ride.row}): ${inMsg.body}`);
       return;
@@ -865,6 +903,23 @@ function handleInbound_(tx, m, rides, wait, sh) {
       queue_(tx, ride, fill_(tpl.cancelled, ride), 'cancelled');
       if (crew) flag_(tx, 'Cancelled — tell the crew', ride.id, from10, inMsg.body, `${ride.first} (row ${ride.row}) was already assigned to ${crew}. Tell them in GroupMe.`).urgent = true;
       else if (c.extra) flag_(tx, 'Cancelled + more', ride.id, from10, inMsg.body, `${ride.first} cancelled but wrote more — read it`);
+
+      // Multiple rides under one phone: also cancel any other open un-assigned rides for this phone,
+      // so duplicate/updated rows aren't left behind as open ghost rides in the sheet, and won't get auto-texted!
+      if (from10) {
+        const otherOpen = open.filter(x => x.id !== ride.id && !x.driver);
+        otherOpen.forEach(o => {
+          try {
+            cancelRow_(sh, rowOf_(sh, o), cancelReason_(m.text));
+            const orec = tx.rides[o.id] || (tx.rides[o.id] = { row: o.row, first: o.first, phone10: from10 });
+            orec.state = 'cancelled';
+            orec.note = `Cancelled by text (same phone as row ${ride.row}): ` + cancelReason_(m.text);
+            dropQueued_(tx, o.id, 'Not sent — rider cancelled');
+            logRow_({ dir: 'note', phone: from10, rideId: o.id, row: o.row, name: o.first, note: `Also cancelled row ${o.row} (same phone as row ${ride.row})` });
+          } catch (e) {}
+        });
+        tx.flags.filter(f => f.phone === from10 && f.kind === 'Updated request?' && !f.done).forEach(f => { f.done = true; });
+      }
     } catch (e) { flag_(tx, "Couldn't cancel", ride.id, from10, inMsg.body, e.message); }
     return;
   }
