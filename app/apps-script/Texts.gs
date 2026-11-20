@@ -38,9 +38,9 @@ const TEMPLATE_DEFAULTS = {
   whichMoody: "REPLY CENTER or DMC: which Moody do you mean — the Moody Center (the arena) or DMC (the Dealey Center, Moody College)? Hi {first}! SURE Walk got your ride request: {pickup} → {dropoff}.",
   optout: "You won't get any more texts from SURE Walk.",
   // 👥 Added to the end of "you're confirmed" when other riders asked for a ride around the same time (no one is named):
-  groupAsk: "Riding with friends who also requested a SURE Walk ride? Reply with their first names (or NO if it's just you) so we can send you together.",
-  groupHint: "Going with friends? Text us their first names and we'll try to ride you together.",
-  groupJoined: "Got it, we'll try to get you and {names} in the same car.",
+  groupAsk: "Riding with friends who also requested a SURE Walk ride? Reply with their first names (or NO if it's just you) and we'll try to put you in the same car, but we can't promise it.",
+  groupHint: "Going with friends? Text us their first names and we'll try to put you in the same car, but we can't promise it.",
+  groupJoined: "Got it. Please be aware we may not be able to put your group in the same car because of driver availability. However, we will try our best to get you and {names} in the same vehicle.",
   poll_q1: "📋 SURE Walk (1/3)\nSURE Walk would love your input on shaping the future of our rides! Help us plan future features with 3 quick questions:\n\nHow would you like us to confirm your ride?\n1 • Text message\n2 • Phone call with ETA\n3 • Other (text us your own idea!)\n\n👉 Reply 1, 2, or text your idea (or SKIP)",
   poll_q2: "📋 SURE Walk (2/3)\n\nIn the future, would you like to request rides directly by texting this number?\n\n👉 Reply YES, NO, or MAYBE (or SKIP)",
   poll_q3: "📋 SURE Walk (3/3)\n\nAny other ideas you'd love to see SURE Walk try in the future?\n\n👉 Reply with your thoughts (or SKIP)",
