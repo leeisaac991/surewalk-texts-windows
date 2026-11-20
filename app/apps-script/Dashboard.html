@@ -563,7 +563,7 @@
   }
   // Drop-off check: "? Drop-off" = not on the list (ask), "✗ Drop-off" = marked not a residence / campus building.
   function dropChip(r) {
-    if (r.drop === 'unknown') return ' <span class="chip drop" title="Unfamiliar drop-off: not texted until you say it's a residence or a campus building">? Drop-off</span>';
+    if (r.drop === 'unknown') return ' <span class="chip drop" title="Unfamiliar drop-off: not texted until you say it\'s a residence or a campus building">? Drop-off</span>';
     if (r.drop === 'invalid') return ' <span class="chip drop bad" title="Marked not a residence or campus building">✗ Drop-off</span>';
     return '';
   }
