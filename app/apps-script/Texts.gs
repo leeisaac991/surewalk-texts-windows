@@ -580,6 +580,10 @@ function groupReply_(tx, rides, ride, rec, text, asked, tpl) {
   const cands = rides.filter(x => x.id !== ride.id && x.first && (!ride.phone10 || x.phone10 !== ride.phone10) &&
     Math.abs(x.tsMs - ride.tsMs) <= GROUP_NAME_WINDOW_MIN * 60e3 && groupLive_(tx, rides, x));
   const p = parseGroupReply_(text, cands, ride), now = Date.now(), body = String(text || '').slice(0, 300);
+  // After the softer groupHint ("Going with friends? Text us their first names") only names (or "just me") are an
+  // answer: a bare "yes" / "ok" / "thanks" is read as usual, never a "we're together" or a "Group?" flag.
+  // (After groupAsk, "Riding with friends who also requested…?", a bare "yes" does mean together.)
+  if (!p.names.length && !p.alone && !mention && !(rec.groupAsk && rec.groupAsk.exact)) return '';
   if (!asked && !p.names.length) return ''; // a mention we can't place: read as usual
   if (p.alone && !p.names.length) {
     rec.groupAnswer = { alone: true, at: now };
@@ -615,12 +619,32 @@ function groupReply_(tx, rides, ride, rec, text, asked, tpl) {
   });
   if (p.unknown.length && joined.length) flag_(tx, GROUP_FLAG, ride.id, ride.phone10, body, `${who_(ride)} also named ${p.unknown.join(', ')}, who has no ride near theirs — grouped with ${joined.map(x => x.first).join(', ')} only`);
   if (joined.length) {
+    groupConfirm_(tx, rides, joined, ride, tpl); // the friends they named are confirmed too (user, 2026-11-19)
     const names = joined.map(x => x.first);
     logRow_({ dir: 'note', phone: ride.phone10, rideId: ride.id, row: ride.row, name: ride.first, note: `Group: with ${joined.map(who_).join(', ')} (they named them)` });
     // the caller sends it (or adds it to "you're confirmed" when this same text was their YES)
     if (tpl.groupJoined) rec.groupJoinedText = fill_(tpl.groupJoined, ride, '', { names: names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names[0] });
   }
   return 'used';
+}
+/*
+ * Someone says who they ride with: everyone in that group who got our "REPLY YES" text and hasn't answered is confirmed
+ * too (user, 2026-11-19) and gets the usual "you're confirmed" text (no names in it). Not: ADA riders we asked about
+ * ADA, "which Moody?" riders, rides not texted yet, or rides already over. No reminder / "call them" for them after.
+ */
+function groupConfirm_(tx, rides, list, by, tpl) {
+  const now = Date.now();
+  list.forEach(o => {
+    const rec = tx.rides[o.id], x = rides.find(y => y.id === o.id) || o;
+    if (!rec || rec.state !== 'texted' || rec.adaAsk || rideDone_(tx, rides, o.id) || !x.phone10) return;
+    Object.assign(rec, { state: 'confirmed', confirmedAt: now, groupConfirmedBy: by.id, note: `Confirmed: ${by.first} said they're riding together` });
+    tx.out.filter(q => q.rideId === o.id && q.st === 'queued' && q.kind === 'reminder').forEach(q => { // not "we haven't heard back"
+      q.st = 'failed'; q.err = 'Not sent: confirmed by their group';
+      const m = tx.msgs.find(y => y.outId === q.outId); if (m) m.st = 'failed';
+    });
+    queue_(tx, x, fill_(tpl.confirmed, x), 'confirmed');
+    logRow_({ dir: 'note', phone: x.phone10, rideId: o.id, row: x.row, name: x.first, note: `Confirmed by their group (${by.first}, row ${by.row}, said they're riding together)` });
+  });
 }
 /** For the dashboard: r's group (letter, the others, and whether each told us themselves). */
 function groupView_(tx, rides, id) {
@@ -909,12 +933,16 @@ function handleInbound_(tx, m, rides, wait, sh) {
   }
   // 👥 Who they're riding with: an answer to our group question, or "Okay - I'm with Sam" (see groupReply_).
   if (!['cancel', 'stop', 'start', 'eta'].includes(c.intent)) {
-    const asked = !!rec.groupAsk && !rec.groupAnswer && ms - rec.groupAsk.at < GROUP_LISTEN_MIN * 60e3;
+    // (only texts sent AFTER we asked: a double "YES YES" is not an answer to the question their first YES triggered)
+    const asked = !!rec.groupAsk && !rec.groupAnswer && ms > rec.groupAsk.at && ms - rec.groupAsk.at < GROUP_LISTEN_MIN * 60e3;
     const g = groupReply_(tx, rides, ride, rec, m.text, asked, tpl);
     const joinedText = rec.groupJoinedText || ''; delete rec.groupJoinedText;
     if (g === 'done' || (g === 'used' && (c.intent !== 'yes' || rec.state === 'confirmed'))) {
       inMsg.intent = 'group';
-      if (joinedText) queue_(tx, ride, joinedText, 'groupJoined');
+      if (joinedText && rec.state === 'texted' && !rec.adaAsk) { // "I'm with Nia" without a YES: in a group = confirmed too
+        Object.assign(rec, { state: 'confirmed', confirmedAt: rec.confirmedAt || ms, note: 'Confirmed: said who they ride with' });
+        queue_(tx, ride, fill_(tpl.confirmed, ride) + ' ' + joinedText, 'confirmed');
+      } else if (joinedText) queue_(tx, ride, joinedText, 'groupJoined');
       return;
     }
     if (joinedText) rec.groupJoinedLater = joinedText;

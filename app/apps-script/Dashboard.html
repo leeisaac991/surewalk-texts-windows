@@ -478,8 +478,19 @@
 <script>
   const PAGE_VERSION = '2026-11-04h'; // must match FILE_VERSION_* in every .gs file
   window.addEventListener('load', () => window.SWReports && SWReports.init({ app: 'texting',
-    version: () => (typeof BUILD_ID !== 'undefined' ? BUILD_ID : PAGE_VERSION),
-    places: () => state ? [...new Set(state.rides.flatMap(r => [r.pickupName, r.dropoffName]))] : [] }));
+    version: () => window.SW_APP_VERSION || (typeof BUILD_ID !== 'undefined' ? BUILD_ID : PAGE_VERSION), // the laptop's release
+    places: () => state ? [...new Set(state.rides.flatMap(r => [r.pickupName, r.dropoffName]))] : [],
+    diag: () => { // 🩺 for bug reports: no rider info
+      if (!state) return { state: 'not loaded yet' };
+      const b = state.bridge, kinds = {};
+      (state.flags || []).forEach(f => { kinds[f.kind] = (kinds[f.kind] || 0) + 1; });
+      const bad = Object.keys(state.versions || {}).filter(f => state.versions[f] !== PAGE_VERSION);
+      return { texting: state.texting ? 'on' : 'OFF', autoText: state.autoText ? 'on' : 'off', setUp: state.setUp ? 'yes' : 'NO',
+        bridge: !b ? 'never connected' : `${b.connected ? 'phone connected' : 'PHONE DISCONNECTED'}, seen ${Math.round((Date.now() - b.at) / 1000)}s ago`,
+        outbox: state.outbox || 0, failed: state.failedCount || 0, rides: (state.rides || []).length,
+        flags: Object.keys(kinds).map(k => `${k} ${kinds[k]}`).join('; '), staleFiles: bad.join(' '),
+        refreshedAgo: lastRefresh ? Math.round((Date.now() - lastRefresh) / 1000) + 's' : 'never' };
+    } }));
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const js = v => esc(JSON.stringify(v));
@@ -491,7 +502,7 @@
 
   // ---------- server calls ----------
   function call(fn, ...args) {
-    return new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(e => rej(e))[fn](...args));
+    return new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(e => { if (window.SWReports) SWReports.noteError(fn + ': ' + (e && e.message || e)); rej(e); })[fn](...args));
   }
   // The button you pressed (or, after a confirm dialog, the button that opened it) shows a spinner while it works.
   let lastPressed = null, lastPressedAt = 0, askOrigin = null, loads = 0;
@@ -1534,7 +1545,8 @@
     </div>
     <label for="swrNote" id="swrNoteLabel">What happened?</label>
     <textarea id="swrNote" placeholder=""></textarea>
-    <div class="swr-warn">Don't paste rider text messages, names or phone numbers (phone numbers are removed automatically).</div>
+    <div class="swr-warn">Don't paste rider text messages, names or phone numbers (phone numbers are removed automatically).
+      Bugs and ideas also carry a 🩺 snapshot of the app (version, connection, counts, recent errors), never rider info.</div>
     <div class="swr-row"><span class="swr-grow" id="swrSaved"></span>
       <button class="swr-btn" onclick="SWReports.close()">Close</button>
       <button class="swr-btn pri" id="swrSave" onclick="SWReports.save()">Save report</button></div>
@@ -1550,7 +1562,8 @@
  * dispatcher sends them to Isaac by copying them into a GroupMe DM (split into ≤ 900-character parts: GroupMe's
  * limit is 1,000). Reports never carry rider names, phones or text messages: a place report is just the place text
  * and what it is. Nothing here changes how the app behaves: Isaac reviews them and ships fixes in an update.
- *   SWReports.init({ app: 'dispatch' | 'texting', version: () => '…', places: () => ['Jester', …] })
+ *   SWReports.init({ app: 'dispatch' | 'texting', version: () => '…', places: () => ['Jester', …], diag: () => ({ k: v }) })
+ *   SWReports.noteError(msg)  — a failed server call etc., for the 🩺 snapshot; SWReports.snapshot() — what it would attach
  *   SWReports.open({ type: 'bug' | 'idea' | 'place', place, verdict, places: [...], note })
  *   SWReports.quick(place, verdict, from, silent)  — one-click place report (e.g. ✓ / ✗ on a flag), with a toast
  */
@@ -1563,7 +1576,34 @@ window.SWReports = (function () {
     ['on', 'On campus'], ['off', 'Off campus'], ['west', 'West Campus'], ['other', 'Something else (say in the note)'],
   ];
   const VLABEL = Object.fromEntries(VERDICTS);
-  let cfg = { app: 'app', version: () => '', places: () => [] }, type = 'bug', mem = null, toastT = 0;
+  let cfg = { app: 'app', version: () => '', places: () => [], diag: () => ({}) }, type = 'bug', mem = null, toastT = 0, inited = false;
+  // 🩺 Recent errors on this page (script errors, failed promises, console.error, failed server calls via noteError),
+  // newest last, for the snapshot attached to bug / idea reports.
+  const errs = [];
+  function noteError(msg) {
+    const s = String(msg && msg.message || msg || '').replace(/\s+/g, ' ').trim();
+    if (!s) return;
+    const last = errs[errs.length - 1];
+    if (last && last.m === s) { last.n++; last.t = Date.now(); return; }
+    errs.push({ t: Date.now(), m: s.slice(0, 160), n: 1 });
+    if (errs.length > 8) errs.shift();
+  }
+  window.addEventListener('error', e => noteError((e.message || 'error') + (e.lineno ? ` @${e.lineno}:${e.colno}` : '')));
+  window.addEventListener('unhandledrejection', e => noteError('promise: ' + (e.reason && e.reason.message || e.reason)));
+  try { const ce = console.error.bind(console); console.error = (...a) => { try { noteError(a.map(x => x && x.message || String(x)).join(' ')); } catch (e) {} ce(...a); }; } catch (e) {}
+  const clock = t => { const d = new Date(t); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const browser = () => { const u = navigator.userAgent, m = /(Edg|Chrome|Firefox|Version)\/(\d+)/.exec(u); return m ? (m[1] === 'Version' ? 'Safari' : m[1] === 'Edg' ? 'Edge' : m[1]) + ' ' + m[2] : ''; };
+  // The app's state when the report is saved: version, connection, counts, errors. Never names, phones or texts.
+  function snapshot() {
+    let app = {};
+    try { app = inited ? (cfg.diag() || {}) : { started: 'NO (the app never finished loading)' }; } catch (e) { app = { diagError: e.message }; }
+    const s = Object.assign({ ver: String(cfg.version() || ''), online: navigator.onLine, view: `${innerWidth}x${innerHeight}`, browser: browser() }, app);
+    Object.keys(s).forEach(k => { if (s[k] === '' || s[k] == null) delete s[k]; else if (typeof s[k] === 'string') s[k] = scrub(s[k]).slice(0, 120); });
+    s.errors = errs.map(e => `${clock(e.t)} ${scrub(e.m)}${e.n > 1 ? ' ×' + e.n : ''}`);
+    return s;
+  }
+  const diagText = d => d ? Object.keys(d).filter(k => k !== 'errors').map(k => `${k}=${d[k]}`).join(', ') +
+    (d.errors && d.errors.length ? ` | errors: ${d.errors.join(' / ')}` : ' | no errors') : '';
 
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -1582,13 +1622,14 @@ window.SWReports = (function () {
   }
   function add(r) {
     const list = load().slice();
-    list.push(Object.assign({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(), app: cfg.app, ver: String(cfg.version() || '') }, r));
+    list.push(Object.assign({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(), app: cfg.app, ver: String(cfg.version() || '') },
+      r.type === 'place' ? {} : { diag: snapshot() }, r));
     return store(list);
   }
   const when = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`; };
   function line(r, i) {
     const what = r.type === 'place' ? `PLACE "${r.place}" = ${VLABEL[r.verdict] || r.verdict}${r.from ? ` (from: ${r.from})` : ''}` : r.type.toUpperCase();
-    return `#${i + 1} ${when(r.at)} · ${what}${r.note ? ' · ' + r.note : ''}`;
+    return `#${i + 1} ${when(r.at)} · ${what}${r.note ? ' · ' + r.note : ''}${r.diag ? '\n   🩺 ' + diagText(r.diag) : ''}`;
   }
   // The reports as GroupMe-sized messages.
   function parts() {
@@ -1599,7 +1640,7 @@ window.SWReports = (function () {
     let cur = [];
     list.forEach((r, i) => {
       let l = line(r, i);
-      if (l.length > PART - 60) l = l.slice(0, PART - 61) + '…';
+      if (l.length > PART - 60) l = l.slice(0, PART - 61) + '…'; // (a long snapshot is cut, the note comes first)
       if ((head(0) + '\n' + cur.concat(l).join('\n')).length > PART) { out.push(cur); cur = []; }
       cur.push(l);
     });
@@ -1631,7 +1672,9 @@ window.SWReports = (function () {
   }
 
   return {
-    init(c) { cfg = Object.assign(cfg, c || {}); },
+    init(c) { cfg = Object.assign(cfg, c || {}); inited = true; },
+    noteError,
+    snapshot,
     open(o) {
       o = o || {};
       type = o.type || 'bug';
