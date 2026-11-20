@@ -563,7 +563,7 @@
   }
   // Drop-off check: "? Drop-off" = not on the list (ask), "✗ Drop-off" = marked not a residence / campus building.
   function dropChip(r) {
-    if (r.drop === 'unknown') return ' <span class="chip drop" title="Not on the drop-off list: is it a residence or a campus building?">? Drop-off</span>';
+    if (r.drop === 'unknown') return ' <span class="chip drop" title="Unfamiliar drop-off: not texted until you say it's a residence or a campus building">? Drop-off</span>';
     if (r.drop === 'invalid') return ' <span class="chip drop bad" title="Marked not a residence or campus building">✗ Drop-off</span>';
     return '';
   }
@@ -713,7 +713,7 @@
           ${x.rideId || x.phone ? `<button onclick='openFlag(${js(x.id)})'>Open</button>` : ''}
           ${r && ['cx_offcampus', 'cx_dropoffonly'].includes(r.invalid) ? placeBtns(r.pickup, 'pickup', x.kind) : ''}
           ${r && r.invalid ? `<button class="primary" onclick='cancelText(${js(x.rideId)}, ${js(r.invalid)}, ${js(x.id)})'>Review cancel text</button>` : ''}
-          ${r && r.drop && /^(Drop-off\?|Not a valid drop-off)$/.test(x.kind) ? dropBtns(r) : ''}
+          ${r && r.drop && /^(Unfamiliar drop-off|Not a valid drop-off)$/.test(x.kind) ? dropBtns(r) : ''}
           <button class="ok" title="Mark handled" aria-label="Mark handled" onclick='act("markHandled", ${js(x.id)})'>✓</button></span></div>`; }).join('')}</div>` : '';
     f.forEach(x => shownFlags.add(x.id));
   }
@@ -890,7 +890,7 @@
         ${r && r.group ? `<div class="note">👥 ${esc(r.group.letter ? 'Group ' + r.group.letter : 'Group (letter coming)')} with ${esc(r.group.members.filter(m => m.id !== r.id).map(m => `${m.first} (row ${m.row})`).join(', '))} — ${esc(r.group.both ? 'they named each other' : 'named by ' + r.group.members.filter(m => m.said).map(m => m.first).join(', ') + ' only')}. Change it in the calling panel.</div>` : ''}
         ${r && r.drop && !r.invalid ? `<div class="drop-box ${r.drop === 'invalid' ? 'bad' : ''}"><span>${r.drop === 'invalid'
             ? `✗ <b>${esc(r.dropoffName)}</b> was marked not a residence or campus building.`
-            : `? <b>${esc(r.dropoffName)}</b> isn't on the drop-off list. Is it a residence (dorm, apartment, house) or a campus building?`} Your answer is remembered for next time.</span>${dropBtns(r)}</div>` : ''}
+            : `? <b>${esc(r.dropoffName)}</b> isn't on the drop-off list${r.textedAt ? '' : ', so they haven\'t been texted yet'}. Is it a residence (dorm, apartment, house) or a campus building? ✓ Valid sends the confirmation.`} Your answer is remembered for next time.</span>${dropBtns(r)}</div>` : ''}
         ${r && r.invalid === 'cx_notres' ? `<div class="drop-box bad"><span>Wrong call? Mark the drop-off valid to text them the confirmation instead.</span>${dropBtns(r)}</div>` : ''}
         ${r && r.invalid ? `<div class="invalid-box"><span>⚠ <b>Invalid ride:</b> ${esc((state.cancelNotices.find(c => c.key === r.invalid) || {}).label || r.note)}. The cancel text is ready — review it, then approve to cancel the ride and send it.</span>
           <button class="primary" onclick='cancelText(${js(r.id)}, ${js(r.invalid)})'>Review cancel text</button></div>` : ''}

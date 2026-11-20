@@ -359,7 +359,7 @@ function scanRides_(tx, rides, wait) {
           rec.callFlagDone = true;
         }
       }
-      if (rec.drop && r.state === 'open') dropRecheck_(tx, r, rec, dropDec);
+      if (rec.drop && r.state === 'open') dropRecheck_(tx, r, rec, dropDec, wait, auto, optOut);
       // Flagged "Off-campus pickup", but the place list now knows it's on campus (e.g. "Main Mall" was added):
       // back to "not texted" and off Needs a look — the same as fixing the pickup with ✎ Edit.
       if (rec.state === 'flagged' && rec.invalid === 'cx_offcampus' && r.pickup && !r.offPickup) {
@@ -436,41 +436,44 @@ function scanRides_(tx, rides, wait) {
         `${r.first} (row ${r.row}) — ${only ? `${r.pickupName} is drop-off only` : 'we only pick up on campus'}. Review the cancel text to cancel it and tell them.`);
     } else if (dropSt === 'invalid') { // a dispatcher marked this drop-off ✗ Not valid before: held, the cancel text ready
       Object.assign(n, { state: 'flagged', drop: 'invalid', note: `Drop-off ${r.dropoffName || r.dropoff} was marked not valid before`, invalid: 'cx_notres' });
-      flag_(tx, DROP_BAD_FLAG, r.id, r.phone10, `${r.pickup} → ${r.dropoff}`,
-        `${r.first} (row ${r.row}) — ${r.dropoff} was marked not a residence or campus building before. Review the cancel text to cancel it and tell them, or ✓ Valid to text them.`);
+      flag_(tx, DROP_BAD_FLAG, r.id, r.phone10, `${r.pickup} → ${r.dropoff}`, `${r.first} (row ${r.row}) — ${DROP_BAD_NOTE}`);
+    } else if (dropSt === 'unknown') { // not on the drop-off list: held for you (user: don't auto-send) — ✓ Valid texts them
+      Object.assign(n, { state: 'flagged', drop: 'unknown', note: 'Unfamiliar drop-off — not texted yet' });
+      flag_(tx, DROP_ASK_FLAG, r.id, r.phone10, `${r.pickup} → ${r.dropoff}`, `${r.first} (row ${r.row}) — ${DROP_ASK_NOTE}`);
     } else if (beforeStart_(r.tsMs)) {
       Object.assign(n, { state: 'flagged', note: 'Requested before 7:00 PM', invalid: 'cx_early' });
       flag_(tx, 'Before 7 PM', r.id, r.phone10, `${r.pickup} → ${r.dropoff}`, `${r.first} (row ${r.row}) asked at ${r.time}, before rides start. Review the cancel text to cancel it and tell them.`);
     } else if (now - r.tsMs > FRESH_MIN * 60e3) Object.assign(n, { note: `Already ${Math.round((now - r.tsMs) / 60e3)} min old when first seen — not texted automatically` });
     else if (auto) firstText_(tx, r, n, wait); // the confirmation, or "which Moody?" first
-    // Not on the drop-off list: texted as usual, and the dispatcher is asked once (✓ Valid / ✗ Not valid, remembered).
-    if (dropSt === 'unknown' && r.state === 'open' && !['skipped', 'duplicate', 'cancelled', 'optedout'].includes(n.state)) {
-      n.drop = 'unknown';
-      if (!n.note) n.note = 'Drop-off not on the list — check it';
-      flag_(tx, DROP_ASK_FLAG, r.id, r.phone10, `${r.pickup} → ${r.dropoff}`,
-        `${r.first} (row ${r.row}) — is ${r.dropoff} a residence or a campus building? ✓ Valid or ✗ Not valid (remembered for next time).`);
-    }
   });
   try { etaLog_(tx, rides, wait); } catch (e) { console.log('ETA log: ' + (e && e.message)); } // never in the way of texting
 }
 
 // ---------- Drop-off check (Places.gs dropoffStatus_) ----------
-const DROP_ASK_FLAG = 'Drop-off?', DROP_BAD_FLAG = 'Not a valid drop-off';
+const DROP_ASK_FLAG = 'Unfamiliar drop-off', DROP_BAD_FLAG = 'Not a valid drop-off';
+// The flag's detail line (the card's headline is the flag kind).
+const DROP_ASK_NOTE = 'not on the drop-off list. ✓ Valid sends the confirmation; ✗ Not valid offers the cancel text.';
+const DROP_BAD_NOTE = 'marked not a residence or campus building. Review the cancel text, or ✓ Valid to text them.';
 /*
  * A ride whose drop-off was 'unknown' or 'invalid' when first seen, looked at again on every scan (a dispatcher may
  * have marked the place since, or fixed the drop-off with ✎ Edit):
- *   now ok      → its drop-off flags are done; held only for the drop-off → back to "not texted" (Send confirmation).
- *   now invalid → the "Drop-off?" flag becomes "Not a valid drop-off" with the cancel text ready; a ride not texted yet
- *                 is held (texted riders keep their ride until you cancel it).
+ *   now ok      → its drop-off flags are done; a ride held only for the drop-off gets its confirmation right away
+ *                 (Auto-text on; otherwise back to "not texted" for Send confirmation).
+ *   now invalid → "Unfamiliar drop-off" becomes "Not a valid drop-off" with the cancel text ready; a ride not texted yet
+ *                 stays held (texted riders keep their ride until you cancel it).
+ *   now unknown → (a decision was forgotten) asked again; a ride not texted yet is held.
  */
-function dropRecheck_(tx, r, rec, dec) {
+function dropRecheck_(tx, r, rec, dec, wait, auto, optOut) {
   const st = dropoffStatus_(r.dropoff, dec) || 'ok', was = rec.drop;
   if (st === was) return;
   const close = kinds => tx.flags.filter(f => f.rideId === r.id && !f.done && kinds.includes(f.kind)).forEach(f => { f.done = true; });
   if (st === 'ok') { // (or the drop-off was cleared)
     rec.drop = 'ok'; close([DROP_ASK_FLAG, DROP_BAD_FLAG]); // (kept, so a forgotten decision is asked again)
-    if (rec.state === 'flagged' && rec.invalid === 'cx_notres') { delete rec.invalid; Object.assign(rec, { state: 'ready', note: 'Drop-off marked valid — not texted yet' }); }
-    else if (/^Drop-off not on the list/.test(rec.note || '')) rec.note = 'Drop-off marked valid';
+    const held = rec.state === 'flagged' && !rec.textedAt && (rec.invalid === 'cx_notres' || /^(Unfamiliar drop-off|Drop-off .* marked not valid)/.test(rec.note || ''));
+    if (!held) { if (/^Unfamiliar drop-off/.test(rec.note || '')) rec.note = 'Drop-off marked valid'; return; }
+    delete rec.invalid;
+    Object.assign(rec, { state: 'ready', note: 'Drop-off marked valid — not texted yet' });
+    if (auto && r.phone10 && !(optOut && optOut.has(r.phone10)) && !handled_(r)) firstText_(tx, r, rec, wait); // the confirmation, now
     return;
   }
   rec.drop = st;
@@ -479,14 +482,13 @@ function dropRecheck_(tx, r, rec, dec) {
     if (['ready', 'flagged'].includes(rec.state) && !rec.textedAt && !rec.invalid) Object.assign(rec, { state: 'flagged', invalid: 'cx_notres' });
     rec.note = `Drop-off ${r.dropoffName || r.dropoff} marked not valid`;
     if (!tx.flags.some(f => f.rideId === r.id && !f.done && f.kind === DROP_BAD_FLAG))
-      flag_(tx, DROP_BAD_FLAG, r.id, r.phone10, `${r.pickup} → ${r.dropoff}`,
-        `${r.first} (row ${r.row}) — ${r.dropoff} isn't a residence or campus building. Review the cancel text to cancel it and tell them.`);
+      flag_(tx, DROP_BAD_FLAG, r.id, r.phone10, `${r.pickup} → ${r.dropoff}`, `${r.first} (row ${r.row}) — ${DROP_BAD_NOTE}`);
   } else { // → unknown (the decision was forgotten): back to asking
     close([DROP_BAD_FLAG]);
-    if (rec.state === 'flagged' && rec.invalid === 'cx_notres') { delete rec.invalid; Object.assign(rec, { state: 'ready', note: 'Drop-off not on the list — check it' }); }
+    if (rec.state === 'flagged' && rec.invalid === 'cx_notres') delete rec.invalid;
+    if (['ready', 'flagged'].includes(rec.state) && !rec.textedAt) Object.assign(rec, { state: 'flagged', note: 'Unfamiliar drop-off — not texted yet' });
     if (!tx.flags.some(f => f.rideId === r.id && !f.done && f.kind === DROP_ASK_FLAG))
-      flag_(tx, DROP_ASK_FLAG, r.id, r.phone10, `${r.pickup} → ${r.dropoff}`,
-        `${r.first} (row ${r.row}) — is ${r.dropoff} a residence or a campus building? ✓ Valid or ✗ Not valid (remembered for next time).`);
+      flag_(tx, DROP_ASK_FLAG, r.id, r.phone10, `${r.pickup} → ${r.dropoff}`, `${r.first} (row ${r.row}) — ${DROP_ASK_NOTE}`);
   }
 }
 
