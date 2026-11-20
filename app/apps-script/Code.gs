@@ -102,6 +102,7 @@ function stateView_(rides, wait) {
         eta: r.state === 'open' && !r.arrived ? etaText_(wait, r) : '', // this rider's wait (riders ahead of them in line)
         driver: r.driver, nav: r.nav, call: r.call, arrived: r.arrived, dispatcher: r.dispatcher, sheetState: r.state, dupOf: r.dupOf, offPickup: r.offPickup, dropoffOnly: r.dropoffOnly,
         state: rec.state || 'ready', note: rec.note || '', invalid: rec.state === 'flagged' && r.state === 'open' ? rec.invalid || (r.offPickup ? (dropoffOnly_(r.pickup) ? 'cx_dropoffonly' : 'cx_offcampus') : '') : '', textedAt: rec.textedAt || 0, confirmedAt: rec.confirmedAt || 0, lastInAt: rec.lastInAt || 0,
+        drop: rec.drop === 'ok' ? '' : rec.drop || '', // drop-off check: '' (fine) | 'unknown' | 'invalid'
         group: groupView_(tx, rides, r.id), // 👥 riding together (who named whom)
         // "No reply" only while they really haven't texted back since we texted them.
         noReply: rec.state === 'texted' && rec.textedAt && !(rec.lastInAt >= rec.textedAt - 60e3) && !((lastIn[r.phone10] || 0) >= rec.textedAt - 60e3) && now - rec.textedAt > noReplyMin * 60e3
@@ -306,6 +307,40 @@ function dropQueued_(tx, rideId, why) {
   });
 }
 
+/*
+ * Drop-off check: a dispatcher says whether this ride's drop-off is a residence / campus building. Remembered for
+ * good in PLACE_REPORTS (see Places.gs), so every later ride to that place is judged the same; tonight's other open
+ * rides to it are updated on the next scan. valid = true / false; null forgets the decision (asked again next time).
+ */
+function markDropoff(rideId, valid) {
+  guard_();
+  const r = tonightRides_().rides.find(x => x.id === rideId);
+  if (!r) throw new Error("That ride isn't in tonight's sheet anymore.");
+  if (!String(r.dropoff || '').trim()) throw new Error(`${r.first}'s ride has no drop-off.`);
+  setDropDecision_(placeKey_(r.dropoff), valid, r.dropoff);
+  logRow_({ dir: 'note', phone: r.phone10, rideId: r.id, row: r.row, name: r.first,
+    note: `Drop-off "${r.dropoff}" marked ${valid == null ? 'unknown again' : valid ? 'valid' : 'not valid'} (remembered)` });
+  return act_(() => {});
+}
+function forgetDropoff(key) { guard_(); setDropDecision_(String(key || ''), null); return act_(() => {}); }
+function setDropDecision_(key, valid, text) {
+  if (!key) throw new Error('No drop-off to remember.');
+  withLock_(() => {
+    SP_CACHE_ = null;
+    const list = placeReports_(), i = list.findIndex(x => x && x.key === key && x.kind === 'dropoff'), old = i >= 0 ? list.splice(i, 1)[0] : null;
+    if (valid != null) list.push({ key, text: String(text || (old || {}).text || key).replace(/[\r\n]+/g, ' ').trim().slice(0, 120),
+      kind: 'dropoff', verdict: valid ? 'valid' : 'invalid', by: 'texts-dashboard', at: Date.now() });
+    SP_().setProperty(PLACE_REPORTS_PROP, JSON.stringify(list));
+  });
+}
+/** The remembered drop-off decisions, newest first: [{ key, ok, text, at }]. */
+function getDropDecisions() {
+  guard_();
+  const d = dropDecisions_();
+  return Object.keys(d).map(k => Object.assign({ key: k }, d[k])).sort((a, b) => (b.at || 0) - (a.at || 0));
+}
+/** Every place report (drop-off ✓ / ✗ from this dashboard, and later pickups / dispatch), for the next release. */
+function exportPlaceReports() { guard_(); return placeReports_(); }
 function markHandled(flagId) { return act_(tx => { tx.flags.filter(f => f.id === flagId).forEach(f => { f.done = true; }); }); }
 function markAllHandled() { return act_(tx => { tx.flags.forEach(f => { f.done = true; }); }); }
 /** Resend a text that failed (or whose outcome was unknown — the dashboard asks you to check the phone first). */

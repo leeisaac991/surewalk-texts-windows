@@ -106,13 +106,22 @@
   .inbox { margin-top: 14px; }
   .inbox .col-h .link { margin-left: auto; text-transform: none; font-size: 14px; }
   .inbox .rlist { display: flex; flex-direction: column; gap: 4px; }
-  .ib-row { display: flex; align-items: center; gap: 8px; }
-  .ib-row > .rrow { flex: 1; min-width: 0; }
-  .ib-row .ib-acts { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; gap: 6px; align-items: center; }
-  .ib-card { position: relative; }
-  .ib-card .rrow { padding-right: 300px; }
-  @media (max-width: 700px) { .ib-card .rrow { padding-right: 14px; } .ib-row .ib-acts { position: static; transform: none; padding: 0 12px 10px 22px; } .ib-card { background: var(--card); border-radius: 12px; } }
+  /* One card per issue: the PROBLEM is the headline, who / where is one quiet line under it, buttons on the right
+     (wrapping under the text when the column is narrow). */
+  .ib-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding-right: 10px; }
+  .ib-row > .rrow { flex: 1 1 260px; min-width: 0; background: transparent; box-shadow: none; }
+  .ib-row > .rrow:hover { background: transparent; } .ib-row:hover { background: var(--card2); }
+  .ib-row .ib-acts { display: flex; flex: none; gap: 6px; align-items: center; margin-left: auto; padding: 0 0 0 22px; }
+  @media (max-width: 700px) { .ib-row .ib-acts { padding: 0 0 10px 22px; } }
+  @media (max-width: 1100px) { .fb-label { display: none; } }
   .ib-acts button { padding: 5px 12px; font-size: 14px; } .ib-acts button.ok { color: var(--green-text); font-weight: 700; }
+  .ib-issue { display: block; font-size: 16px; font-weight: 700; color: var(--amber); white-space: normal; }
+  .rrow.k-red .ib-issue { color: var(--red); }
+  .ib-detail { display: block; font-size: 14.5px; color: var(--text); margin-top: 1px; white-space: normal; }
+  .ib-who { display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 3px; font-size: 13px; color: var(--label2); }
+  .ib-who > .ib-whot { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ib-who b { color: var(--text); font-weight: 600; } .ib-who .arrow { margin: 0 3px; }
+  .ib-who .chip, .ib-who .ada-chip { font-size: 10.5px; padding: 1px 7px; }
   .ib-row.new { animation: appear .4s var(--ios) both; } /* only the first time it shows */
   .count { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--fill); color: var(--label2); font-size: 12px; text-align: center; }
 
@@ -164,6 +173,9 @@
   .chip.picked { background: var(--accent-bg); color: var(--accent); }
   .chip.assigned { background: var(--fill); color: var(--text); }
   .chip.invalid { background: var(--red-bg); color: var(--red); }
+  .chip.drop { background: var(--amber-bg); color: var(--amber); } .chip.drop.bad { background: var(--red-bg); color: var(--red); }
+  .drop-box { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; padding: 9px 12px; border-radius: 10px; background: var(--amber-bg); font-size: 14px; }
+  .drop-box.bad { background: var(--red-bg); } .drop-box span { flex: 1; min-width: 200px; }
   .chip.grp { background: var(--accent-bg); color: var(--accent); } .chip.grp.one { background: var(--fill); color: var(--text); }
   /* How they confirmed: replied YES by text (a green speech bubble + check, no circle) */
   .tx-ic { flex: none; display: inline-grid; place-items: center; color: var(--green-text); }
@@ -345,13 +357,13 @@
 <div id="callHud" role="status" aria-live="polite" hidden></div>
 <div class="wrap">
   <div class="top">
-    <span class="brand" title="SURE Walk Texting Laptop"><span id="brandLogo" class="brand-logo"></span><span class="brand-t">Texts</span><span class="laptop-pill" title="This laptop runs the texting server and phone bridge">💻 Texting Laptop</span></span>
+    <span class="brand" title="SURE Walk Texting Laptop"><span id="brandLogo" class="brand-logo"></span><span class="brand-t">Texts</span></span>
     <button id="phonePill" class="pill phone" onclick="openSettings('bridge')" title="Bridge + phone status" aria-label="Phone status"></button>
     <button id="autoBtn" class="pill" onclick="toggleSetting('TX_AUTOTEXT')" title="Text new riders automatically"></button>
     <span id="etaChip" class="pill info" title="What riders are told: tonight's average wait (Arrival − Call)"></span>
     <span class="spacer"></span>
     <button class="pill help-pill" onclick="openOnboarding(true)" title="First time using this texting laptop? Click for a walkthrough">❓ First time?</button>
-    <button class="pill" onclick="openMetrics()" title="How riders respond to the texts">📊 Metrics</button>
+    <button class="pill" onclick="SWReports.open()" title="Report a bug, an idea, or a pickup / drop-off place we got wrong (sent to Isaac)" aria-label="Feedback">🐞<span class="fb-label"> Feedback</span></button>
     <button class="pill" onclick="openSettings()">⚙ Settings</button>
     <button class="pill" onclick="refresh(true)" title="Refresh">↻</button>
   </div>
@@ -465,6 +477,9 @@
 
 <script>
   const PAGE_VERSION = '2026-11-04h'; // must match FILE_VERSION_* in every .gs file
+  window.addEventListener('load', () => window.SWReports && SWReports.init({ app: 'texting',
+    version: () => (typeof BUILD_ID !== 'undefined' ? BUILD_ID : PAGE_VERSION),
+    places: () => state ? [...new Set(state.rides.flatMap(r => [r.pickupName, r.dropoffName]))] : [] }));
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const js = v => esc(JSON.stringify(v));
@@ -546,6 +561,21 @@
     const who = g.both ? 'They named each other' : 'Named by ' + g.members.filter(m => m.said).map(m => m.first).join(', ') + ' only';
     return ` <span class="chip grp ${g.both ? '' : 'one'}" title="${esc(`Riding with ${others}. ${who}.`)}">👥 ${esc(g.letter ? 'Group ' + g.letter : 'Group')}${g.both ? '' : ' · 1 side'}</span>`;
   }
+  // Drop-off check: "? Drop-off" = not on the list (ask), "✗ Drop-off" = marked not a residence / campus building.
+  function dropChip(r) {
+    if (r.drop === 'unknown') return ' <span class="chip drop" title="Not on the drop-off list: is it a residence or a campus building?">? Drop-off</span>';
+    if (r.drop === 'invalid') return ' <span class="chip drop bad" title="Marked not a residence or campus building">✗ Drop-off</span>';
+    return '';
+  }
+  // ✓ Valid / ✗ Not valid for a ride's drop-off (remembered for every later ride to that place).
+  const dropBtns = (r, flagged) => `${r.drop !== 'ok' ? `<button class="ok" onclick='markDrop(${js(r.id)}, true)' title="It's a residence or a campus building: remembered for next time">✓ Valid</button>` : ''}
+    ${r.drop === 'unknown' ? `<button class="danger" onclick='markDrop(${js(r.id)}, false)' title="Not a residence or campus building: remembered for next time">✗ Not valid</button>` : ''}
+    ${r.drop === 'invalid' && !r.invalid && r.sheetState === 'open' && r.phone10 ? `<button class="primary" onclick='cancelText(${js(r.id)}, "cx_notres")'>Review cancel text</button>` : ''}`;
+  async function markDrop(id, valid) {
+    const r = rideById(id); if (!r) return;
+    if (window.SWReports) SWReports.quick(r.dropoff || r.dropoffName, valid ? 'dropoff_ok' : 'dropoff_bad', 'drop-off flag', true); // for Isaac's list too
+    await act('markDropoff', id, valid).then(() => toast(`${r.dropoffName}: ${valid ? 'valid' : 'not valid'} — remembered`), () => {});
+  }
   // A finished ride (picked up, cancelled, duplicate, opted out): no card, dimmer, so open rides stand out.
   const finished = r => r.sheetState === 'picked' || r.sheetState === 'cancelled' || r.sheetState === 'dup' || ['cancelled', 'duplicate', 'optedout'].includes(r.state);
   // The status stripe: red = invalid / flagged, amber = no reply, blue = sending / texted / ready, green = confirmed, gray = assigned.
@@ -588,7 +618,7 @@
   function riderRow(r, opts) {
     opts = opts || {};
     return `<button type="button" class="rrow ${rowKind(r)} ${selected === r.id && !opts.inbox ? 'sel' : ''}" onclick='select(${js(r.id)})' aria-label="${esc(`${r.first} ${r.last || ''}, ${r.pickupName} to ${r.dropoffName}`)}"${selected === r.id && !opts.inbox ? ' aria-current="true"' : ''}>
-        <span class="rm"><span class="rl1"><span class="rn">${esc(r.first)} ${esc(r.last || '')}</span>${r.ada ? '<span class="ada-chip" title="ADA pickup: an ADA vehicle and a supervisor go along">♿ ADA</span>' : ''}${multiChip(r)}${!opts.inbox && unread(r) ? '<span class="unread" title="New reply"></span>' : ''}${txIcon(r)}${stateChip(r)}${groupChip(r)}</span>
+        <span class="rm"><span class="rl1"><span class="rn">${esc(r.first)} ${esc(r.last || '')}</span>${r.ada ? '<span class="ada-chip" title="ADA pickup: an ADA vehicle and a supervisor go along">♿ ADA</span>' : ''}${multiChip(r)}${!opts.inbox && unread(r) ? '<span class="unread" title="New reply"></span>' : ''}${txIcon(r)}${stateChip(r)}${groupChip(r)}${dropChip(r)}</span>
           <span class="route" style="display:block">${esc(r.pickupName)}<span class="arrow">→</span>${esc(r.dropoffName)}</span>
           <span class="meta" style="display:block">${metaLine(r, opts.note)}</span>
           ${opts.why ? `<span class="note" style="display:block"><b>${esc(opts.why)}</b></span>` : ''}</span></button>`;
@@ -640,21 +670,50 @@
       .replace(/\.\s*$/, '').trim();
     return n ? `${x.kind}: ${n}` : x.kind;
   }
+  // A "Needs a look" card: the issue first ("Off-campus pickup" / "we only pick up on campus"), then one small line
+  // with who and where ("Omar Said · Castilian → Gregory Gym · 18:57 · row 10").
+  function inboxRow(x, r) {
+    const reason = inboxReason(x), cut = reason.indexOf(': ');
+    const issue = cut > 0 ? reason.slice(0, cut) : reason, rest = cut > 0 && !/^we only pick up on campus\.?$/i.test(reason.slice(cut + 2)) ? reason.slice(cut + 2) : ''; // the issue says it already
+    const detail = rest.charAt(0).toUpperCase() + rest.slice(1);
+    const head = `<span class="ib-issue">${esc(issue)}</span>${detail ? `<span class="ib-detail">${esc(detail)}</span>` : ''}`;
+    if (!r) {
+      const who = [fmtPhone(x.phone), x.text, clock(x.ts)].filter(Boolean).map(esc).join(' · ');
+      return `<button type="button" class="rrow ${x.urgent ? 'k-red' : 'k-amber'}" onclick='openFlag(${js(x.id)})'><span class="rm">${head}
+        ${who ? `<span class="ib-who"><span class="ib-whot">${who}</span></span>` : ''}</span></button>`;
+    }
+    const chips = (r.ada ? '<span class="ada-chip" title="ADA pickup: an ADA vehicle and a supervisor go along">♿ ADA</span>' : '') + multiChip(r) + groupChip(r);
+    return `<button type="button" class="rrow ${rowKind(r)}" onclick='select(${js(r.id)})' aria-label="${esc(`${issue}${detail ? ': ' + detail : ''}. ${r.first} ${r.last || ''}, ${r.pickupName} to ${r.dropoffName}`)}">
+        <span class="rm">${head}
+          <span class="ib-who"><span class="ib-whot"><b>${esc(r.first)} ${esc(r.last || '')}</b> · ${esc(r.pickupName)}<span class="arrow">→</span>${esc(r.dropoffName)} · ${esc(r.time || clock(x.ts))} · row ${esc(r.row)}</span>${chips}</span></span></button>`;
+  }
+  // 📍 On a pickup flag: is the app right about this place? Saves a place report for Isaac (changes nothing tonight).
+  const reported = new Set(); // place|role reported from a flag this session: the buttons grey out
+  function placeBtns(place, role, from) {
+    const k = place + '|' + role, done = reported.has(k);
+    return `<span class="swr-place-btns" title="Is the app right about this ${role}? Your answer goes to Isaac for the next update.">
+      <button ${done ? 'class="done" disabled' : ''} onclick='reportPlace(${js(place)}, ${js(role)}, true, ${js(from)})'>✓ Valid ${role}</button>
+      <button ${done ? 'class="done" disabled' : ''} onclick='reportPlace(${js(place)}, ${js(role)}, false, ${js(from)})'>✗ Not valid</button></span>`;
+  }
+  function reportPlace(place, role, ok, from) {
+    SWReports.quick(place, role + (ok ? '_ok' : '_bad'), from);
+    reported.add(place + '|' + role); inboxSig = ''; renderInbox();
+  }
   function renderInbox() {
     const f = state.flags.slice().reverse();
-    const sig = JSON.stringify([state.failedCount || 0].concat(f.map(x => { const r = x.rideId && rideById(x.rideId); return [x.id, r ? [r.invalid, r.state, r.sheetState, r.noReply, r.confirmedAt, r.first, r.last, r.pickupName, r.dropoffName] : '']; })));
+    const sig = JSON.stringify([state.failedCount || 0].concat(f.map(x => { const r = x.rideId && rideById(x.rideId); return [x.id, r ? [r.invalid, r.drop, r.state, r.sheetState, r.noReply, r.confirmedAt, r.first, r.last, r.pickupName, r.dropoffName] : '']; })));
     if (sig === inboxSig) return; // nothing new: leave it alone (no redraw, no animation)
     inboxSig = sig;
     $('inbox').innerHTML = f.length ? `<div class="col-h">Needs a look <span class="count">${f.length}</span>
         ${(state.failedCount || 0) ? `<button class="link" onclick="act('resendFailed')">Resend all failed (${state.failedCount})</button>` : ''}
         <button class="link" ${(state.failedCount || 0) ? 'style="margin-left:4px"' : ''} onclick="act('markAllHandled')">All handled</button></div>
       <div class="rlist">${f.map(x => { const r = x.rideId && rideById(x.rideId);
-        const row = r ? riderRow(r, { inbox: true, note: inboxReason(x) })
-          : `<button type="button" class="rrow ${x.urgent ? 'k-red' : 'k-amber'}" onclick='openFlag(${js(x.id)})'><span class="rm"><span class="rl1"><span class="rn">${esc(fmtPhone(x.phone) || x.kind)}</span><span class="chip flagged">${esc(x.kind)}</span></span>
-              ${x.text ? `<span class="route" style="display:block">${esc(x.text)}</span>` : ''}<span class="meta" style="display:block">${[clock(x.ts), x.note].filter(Boolean).map(esc).join(' · ')}</span></span></button>`;
+        const row = inboxRow(x, r);
         return `<div class="ib-row ib-card ${shownFlags.has(x.id) ? '' : 'new'}">${row}<span class="ib-acts">
           ${x.rideId || x.phone ? `<button onclick='openFlag(${js(x.id)})'>Open</button>` : ''}
+          ${r && ['cx_offcampus', 'cx_dropoffonly'].includes(r.invalid) ? placeBtns(r.pickup, 'pickup', x.kind) : ''}
           ${r && r.invalid ? `<button class="primary" onclick='cancelText(${js(x.rideId)}, ${js(r.invalid)}, ${js(x.id)})'>Review cancel text</button>` : ''}
+          ${r && r.drop && /^(Drop-off\?|Not a valid drop-off)$/.test(x.kind) ? dropBtns(r) : ''}
           <button class="ok" title="Mark handled" aria-label="Mark handled" onclick='act("markHandled", ${js(x.id)})'>✓</button></span></div>`; }).join('')}</div>` : '';
     f.forEach(x => shownFlags.add(x.id));
   }
@@ -810,7 +869,8 @@
           <div class="cv-box info"><span class="cv-box-lbl">Call Time · ${r.call ? 'texted' : 'not texted'}</span><span class="cv-box-val">${esc(r.call || '—')}</span></div>
         </div>
         ${isEd ? `<div class="cv-edbtns"><button onclick="cancelInlineEdit()">Cancel</button><button class="primary" onclick="saveInlineEdit()">Save to sheet</button></div>`
-          : `<div class="cv-meta">Requested ${esc(r.time)} · row ${r.row} · click the name or a place to fix it</div>`}`;
+          : `<div class="cv-meta">Requested ${esc(r.time)} · row ${r.row} · click the name or a place to fix it ·
+              <button type="button" class="link" style="padding:0;font-size:inherit" onclick='SWReports.open({ type: "place", places: ${js([r.pickup, r.dropoff].filter(Boolean))} })' title="Tell Isaac a pickup or drop-off place is judged wrong">📍 Report a place</button></div>`}`;
     } else {
       headerHtml = `<h2>${esc(fmtPhone(phone))}</h2><div class="cv-sub">Not a rider tonight</div>`;
     }
@@ -828,6 +888,10 @@
         ${multiBanner}
         ${r && r.note && !r.invalid ? `<div class="note">${esc(r.note)}</div>` : ''}
         ${r && r.group ? `<div class="note">👥 ${esc(r.group.letter ? 'Group ' + r.group.letter : 'Group (letter coming)')} with ${esc(r.group.members.filter(m => m.id !== r.id).map(m => `${m.first} (row ${m.row})`).join(', '))} — ${esc(r.group.both ? 'they named each other' : 'named by ' + r.group.members.filter(m => m.said).map(m => m.first).join(', ') + ' only')}. Change it in the calling panel.</div>` : ''}
+        ${r && r.drop && !r.invalid ? `<div class="drop-box ${r.drop === 'invalid' ? 'bad' : ''}"><span>${r.drop === 'invalid'
+            ? `✗ <b>${esc(r.dropoffName)}</b> was marked not a residence or campus building.`
+            : `? <b>${esc(r.dropoffName)}</b> isn't on the drop-off list. Is it a residence (dorm, apartment, house) or a campus building?`} Your answer is remembered for next time.</span>${dropBtns(r)}</div>` : ''}
+        ${r && r.invalid === 'cx_notres' ? `<div class="drop-box bad"><span>Wrong call? Mark the drop-off valid to text them the confirmation instead.</span>${dropBtns(r)}</div>` : ''}
         ${r && r.invalid ? `<div class="invalid-box"><span>⚠ <b>Invalid ride:</b> ${esc((state.cancelNotices.find(c => c.key === r.invalid) || {}).label || r.note)}. The cancel text is ready — review it, then approve to cancel the ride and send it.</span>
           <button class="primary" onclick='cancelText(${js(r.id)}, ${js(r.invalid)})'>Review cancel text</button></div>` : ''}
         <div class="cv-act">${r ? `${['ready', 'flagged'].includes(r.state) && !r.textedAt && r.sheetState === 'open' && r.phone10 && !r.invalid ? `<button class="primary" onclick='textRide(${js(r.id)})' ${working.has('confirm:' + r.id) ? 'disabled' : ''}>${working.has('confirm:' + r.id) ? 'Sending…' : 'Send confirmation'}</button>` : ''}
@@ -1109,7 +1173,7 @@
       <button class="${setCategory === c.id ? 'on' : ''}" onclick="setCategory='${c.id}'; try { sessionStorage.setItem('textsSetCat', setCategory); } catch (e) {} renderSettings()"${setCategory === c.id ? ' aria-current="page"' : ''}>
         <span>${c.icon}</span> ${c.label}
       </button>
-    `).join('') + `<div class="set-ver" id="setVersion">Version: ${typeof BUILD_ID !== 'undefined' ? BUILD_ID : PAGE_VERSION}</div>`;
+    `).join('') + `<div class="set-ver"><button class="link" style="padding:0" onclick="closeSettings(); openMetrics()" title="How riders respond to the texts">📊 Metrics</button></div><div class="set-ver" id="setVersion">Version: ${typeof BUILD_ID !== 'undefined' ? BUILD_ID : PAGE_VERSION}</div>`;
 
     let paneHtml = '';
     if (setCategory === 'look') {
@@ -1424,5 +1488,205 @@
     if (line) line.textContent = `Version: ${fmtBuild(firstBuild_)}` + (newer ? ` — a newer version (${fmtBuild(latestBuild_)}) is out, reload` : '');
   }
 </script>
+<!-- SW-REPORTS:BEGIN (shared by the dispatch panel and SURE Walk Texts; source: ~/Documents/surewalk/shared/sw-reports.html,
+     copied in by shared/sync-reports.sh: edit the source, then run the script) -->
+<style>
+  /* 🐞 Feedback & reports: saved on this computer only, sent to Isaac by pasting into a GroupMe DM. */
+  .swr-bg { position: fixed; inset: 0; z-index: 9000; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0,0,0,.45); }
+  .swr-bg[hidden] { display: none; }
+  .swr { width: min(520px, 100%); max-height: calc(100vh - 32px); overflow: auto; background: var(--card); color: var(--text); border-radius: 14px; padding: 16px 18px; box-shadow: 0 10px 40px rgba(0,0,0,.35); font-size: 14px; }
+  .swr h3 { margin: 0 0 4px; font-size: 18px; } .swr .swr-sub { color: var(--muted); font-size: 12.5px; margin-bottom: 12px; }
+  .swr-seg { display: flex; gap: 4px; background: var(--fill); border-radius: 9px; padding: 3px; margin-bottom: 10px; }
+  .swr-seg button { flex: 1; border: 0; border-radius: 7px; padding: 6px 4px; background: transparent; color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+  .swr-seg button.on { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .swr label { display: block; font-size: 12.5px; color: var(--label2); margin: 8px 0 3px; font-weight: 600; }
+  .swr input, .swr select, .swr textarea { width: 100%; box-sizing: border-box; font: inherit; color: var(--text); background: var(--card2); border: 1px solid var(--sep); border-radius: 8px; padding: 7px 9px; }
+  .swr textarea { min-height: 70px; resize: vertical; }
+  .swr-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
+  .swr-row .swr-grow { flex: 1; }
+  .swr button.swr-btn { border: 0; border-radius: 9px; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; background: var(--fill); color: var(--text); }
+  .swr button.swr-btn.pri { background: var(--accent); color: #fff; }
+  .swr button.swr-btn:disabled { opacity: .5; cursor: default; }
+  .swr-hr { border: 0; border-top: 1px solid var(--sep); margin: 16px 0 10px; }
+  .swr-list { margin: 6px 0 0; padding: 0; list-style: none; max-height: 160px; overflow: auto; }
+  .swr-list li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-bottom: 1px solid var(--sep); font-size: 13px; }
+  .swr-list li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .swr-list li button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; }
+  .swr-how { background: var(--fill); border-radius: 9px; padding: 8px 10px; font-size: 13px; margin-top: 8px; line-height: 1.45; }
+  .swr-copy { width: 100%; box-sizing: border-box; min-height: 90px; font-family: ui-monospace, monospace; font-size: 12px; margin-top: 6px; }
+  .swr-warn { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .swr-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 9001; background: var(--text); color: var(--card); padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,.3); }
+  .swr-place-btns { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .swr-place-btns button { border: 0; border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; background: var(--fill); color: var(--text); }
+  .swr-place-btns button.done { opacity: .55; cursor: default; }
+</style>
+<div id="swrSheet" class="swr-bg" hidden onclick="if (event.target === this) SWReports.close()">
+  <div class="swr" role="dialog" aria-modal="true" aria-labelledby="swrTitle">
+    <h3 id="swrTitle">🐞 Feedback &amp; reports</h3>
+    <div class="swr-sub">Saved on this computer only. Isaac reviews them and fixes things in the next update.</div>
+    <div class="swr-seg" id="swrSeg"></div>
+    <div id="swrPlaceBox">
+      <label for="swrPlace">Place (as the rider wrote it)</label>
+      <input id="swrPlace" list="swrPlaces" autocomplete="off" placeholder="e.g. Kerbey Lane on Guadalupe">
+      <datalist id="swrPlaces"></datalist>
+      <label for="swrVerdict">This place is…</label>
+      <select id="swrVerdict"></select>
+    </div>
+    <label for="swrNote" id="swrNoteLabel">What happened?</label>
+    <textarea id="swrNote" placeholder=""></textarea>
+    <div class="swr-warn">Don't paste rider text messages, names or phone numbers (phone numbers are removed automatically).</div>
+    <div class="swr-row"><span class="swr-grow" id="swrSaved"></span>
+      <button class="swr-btn" onclick="SWReports.close()">Close</button>
+      <button class="swr-btn pri" id="swrSave" onclick="SWReports.save()">Save report</button></div>
+    <hr class="swr-hr">
+    <div><b id="swrCount"></b></div>
+    <ul class="swr-list" id="swrList"></ul>
+    <div id="swrSend"></div>
+  </div>
+</div>
+<script>
+/*
+ * Feedback, bug and place reports. Kept in this browser's storage on this computer (never uploaded anywhere); the
+ * dispatcher sends them to Isaac by copying them into a GroupMe DM (split into ≤ 900-character parts: GroupMe's
+ * limit is 1,000). Reports never carry rider names, phones or text messages: a place report is just the place text
+ * and what it is. Nothing here changes how the app behaves: Isaac reviews them and ships fixes in an update.
+ *   SWReports.init({ app: 'dispatch' | 'texting', version: () => '…', places: () => ['Jester', …] })
+ *   SWReports.open({ type: 'bug' | 'idea' | 'place', place, verdict, places: [...], note })
+ *   SWReports.quick(place, verdict, from, silent)  — one-click place report (e.g. ✓ / ✗ on a flag), with a toast
+ */
+window.SWReports = (function () {
+  const KEY = 'sw_reports_v1', PART = 900;
+  const TYPES = [['bug', '🐞 Bug'], ['idea', '💡 Idea'], ['place', '📍 Place']];
+  const VERDICTS = [
+    ['pickup_ok', 'A valid pickup (on campus)'], ['pickup_bad', 'NOT a valid pickup'],
+    ['dropoff_ok', 'A valid drop-off (residence / apartment / campus building)'], ['dropoff_bad', 'NOT a valid drop-off'],
+    ['on', 'On campus'], ['off', 'Off campus'], ['west', 'West Campus'], ['other', 'Something else (say in the note)'],
+  ];
+  const VLABEL = Object.fromEntries(VERDICTS);
+  let cfg = { app: 'app', version: () => '', places: () => [] }, type = 'bug', mem = null, toastT = 0;
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  // Phone numbers (and long digit runs) never leave in a report.
+  const scrub = s => String(s || '').replace(/(?:\+?1[\s.-]?)?\(?\b\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/g, '[phone]').replace(/\d{7,}/g, '[number]').trim();
+
+  function load() {
+    if (mem) return mem;
+    try { mem = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) { mem = []; }
+    if (!Array.isArray(mem)) mem = [];
+    return mem;
+  }
+  function store(list) {
+    mem = list;
+    try { localStorage.setItem(KEY, JSON.stringify(list)); return true; } catch (e) { return false; }
+  }
+  function add(r) {
+    const list = load().slice();
+    list.push(Object.assign({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), at: Date.now(), app: cfg.app, ver: String(cfg.version() || '') }, r));
+    return store(list);
+  }
+  const when = t => { const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()} ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`; };
+  function line(r, i) {
+    const what = r.type === 'place' ? `PLACE "${r.place}" = ${VLABEL[r.verdict] || r.verdict}${r.from ? ` (from: ${r.from})` : ''}` : r.type.toUpperCase();
+    return `#${i + 1} ${when(r.at)} · ${what}${r.note ? ' · ' + r.note : ''}`;
+  }
+  // The reports as GroupMe-sized messages.
+  function parts() {
+    const list = load();
+    if (!list.length) return [];
+    const head = n => `SURE Walk reports · ${cfg.app} ${list[0].ver || ''} · part ${n}`;
+    const out = [];
+    let cur = [];
+    list.forEach((r, i) => {
+      let l = line(r, i);
+      if (l.length > PART - 60) l = l.slice(0, PART - 61) + '…';
+      if ((head(0) + '\n' + cur.concat(l).join('\n')).length > PART) { out.push(cur); cur = []; }
+      cur.push(l);
+    });
+    if (cur.length) out.push(cur);
+    return out.map((ls, k) => head(`${k + 1}/${out.length}`) + '\n' + ls.join('\n'));
+  }
+
+  function renderForm() {
+    $('swrSeg').innerHTML = TYPES.map(([k, l]) => `<button type="button" class="${k === type ? 'on' : ''}" onclick="SWReports.setType('${k}')">${l}</button>`).join('');
+    $('swrPlaceBox').hidden = type !== 'place';
+    $('swrNoteLabel').textContent = type === 'bug' ? 'What went wrong? What were you doing?' : type === 'idea' ? 'Your idea' : 'Anything else? (optional)';
+    $('swrNote').placeholder = type === 'bug' ? 'e.g. Pressed Assign and the ride stayed in Pending' : type === 'idea' ? 'e.g. Show the wait time bigger' : '';
+  }
+  function renderList() {
+    const list = load(), ps = parts();
+    $('swrCount').textContent = list.length ? `${list.length} report${list.length > 1 ? 's' : ''} waiting to send` : 'No reports waiting to send';
+    $('swrList').innerHTML = list.slice().reverse().map(r => `<li><span>${esc(line(r, list.indexOf(r)))}</span><button title="Delete this report" aria-label="Delete this report" onclick="SWReports.remove('${esc(r.id)}')">×</button></li>`).join('');
+    $('swrSend').innerHTML = list.length ? `<div class="swr-how"><b>To send them to Isaac:</b> press <b>Copy</b> below, open GroupMe, open your DM with <b>Isaac</b>, paste (Ctrl+V) and send.${ps.length > 1 ? ` There are ${ps.length} parts: copy and send each one.` : ''} Then press <b>Sent, clear them</b>.</div>
+      <div class="swr-row">${ps.map((p, k) => `<button class="swr-btn pri" onclick="SWReports.copy(${k}, this)">Copy${ps.length > 1 ? ` part ${k + 1} of ${ps.length}` : ''}</button>`).join('')}
+        <button class="swr-btn" onclick="SWReports.download()">Download file</button>
+        <span class="swr-grow"></span><button class="swr-btn" onclick="SWReports.clearSent()">Sent, clear them</button></div>
+      <textarea class="swr-copy" id="swrCopyBox" readonly hidden></textarea>` : '';
+  }
+  function toast(msg) {
+    let t = document.querySelector('.swr-toast');
+    if (!t) { t = document.createElement('div'); t.className = 'swr-toast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+    t.textContent = msg; t.hidden = false;
+    clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600);
+  }
+
+  return {
+    init(c) { cfg = Object.assign(cfg, c || {}); },
+    open(o) {
+      o = o || {};
+      type = o.type || 'bug';
+      $('swrVerdict').innerHTML = '<option value="">Choose…</option>' + VERDICTS.map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('');
+      $('swrVerdict').value = o.verdict || '';
+      const names = [...new Set((o.places || []).concat(cfg.places() || []).filter(Boolean))].slice(0, 400);
+      $('swrPlaces').innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
+      $('swrPlace').value = o.place || (o.places && o.places.length === 1 ? o.places[0] : '');
+      $('swrNote').value = o.note || '';
+      $('swrSaved').textContent = '';
+      renderForm(); renderList();
+      $('swrSheet').hidden = false;
+      setTimeout(() => (type === 'place' && !$('swrPlace').value ? $('swrPlace') : $('swrNote')).focus(), 30);
+    },
+    close() { $('swrSheet').hidden = true; },
+    setType(t) { type = t; renderForm(); },
+    save() {
+      const note = scrub($('swrNote').value).slice(0, 700);
+      const r = { type, note };
+      if (type === 'place') {
+        r.place = scrub($('swrPlace').value).slice(0, 120); r.verdict = $('swrVerdict').value;
+        if (!r.place || !r.verdict) { $('swrSaved').textContent = 'Fill in the place and what it is.'; return; }
+      } else if (!note) { $('swrSaved').textContent = 'Write a few words first.'; return; }
+      const ok = add(r);
+      $('swrNote').value = ''; if (type === 'place') { $('swrPlace').value = ''; $('swrVerdict').value = ''; }
+      $('swrSaved').textContent = ok ? 'Saved ✓' : 'Saved for now (this browser can\'t keep it after closing: send it now).';
+      renderList();
+    },
+    quick(place, verdict, from, silent) {
+      const ok = add({ type: 'place', place: scrub(place).slice(0, 120), verdict, from: from || '', note: '' });
+      if (!silent) toast(ok ? `Reported: "${place}" = ${VLABEL[verdict] || verdict}. Send it from 🐞 Feedback.` : 'Report kept until this page closes: send it from 🐞 Feedback.');
+    },
+    remove(id) { store(load().filter(r => r.id !== id)); renderList(); },
+    clearSent() { store([]); renderList(); toast('Cleared. Thanks!'); },
+    async copy(k, btn) {
+      const text = parts()[k] || '';
+      let ok = false;
+      try { await navigator.clipboard.writeText(text); ok = true; } catch (e) {}
+      if (!ok) { // inside some frames the clipboard API is blocked: select the text instead
+        const box = $('swrCopyBox'); box.hidden = false; box.value = text; box.focus(); box.select();
+        try { ok = document.execCommand('copy'); } catch (e) {}
+      }
+      if (btn) btn.textContent = ok ? 'Copied ✓' : 'Press Ctrl+C';
+    },
+    download() {
+      const text = parts().join('\n\n'), a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+      a.download = `surewalk-reports-${cfg.app}-${new Date().toISOString().slice(0, 10)}.txt`;
+      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    },
+    count: () => load().length,
+    _parts: parts, _scrub: scrub,
+  };
+})();
+</script>
+<!-- SW-REPORTS:END -->
 </body>
 </html>

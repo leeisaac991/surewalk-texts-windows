@@ -10,7 +10,7 @@
  * is not San Jacinto, Littlefield Fountain/House are not Littlefield. Jester, Jester East and Jester West are one place
  * (dispatch treats them as one pickup: "at jester" covers all three).
  */
-const FILE_VERSION_PLACES = '2026-11-04h'; // copied from the dispatch app's Places.gs
+const FILE_VERSION_PLACES = '2026-11-04h'; // copied from the dispatch app's Places.gs; + drop-off check 2026-11-19
 
 const PLACES = {
   // Dorms
@@ -581,3 +581,113 @@ const CAMPUS_MAP = [
   });
   PLACE_INDEX_ = null;
 })();
+
+
+/*
+ * ---------- Drop-off check: a residence / apartment or a campus building? ----------
+ * SURE Walk only drops off at a residential / apartment building or a campus building (user, 2026-11-19).
+ * dropoffStatus_(text):
+ *   'ok'      — a known place (PLACES / the campus map / ZONE_OF), a place on SAFE_DROPOFFS (past drop-offs that
+ *               crews actually completed 2+ times, from the old Google sheets 2025-26 and 2026-27), a street address
+ *               near campus (houses count as residential), a Greek house / co-op / UT lot, or a dispatcher said ✓ Valid.
+ *   'invalid' — a dispatcher said ✗ Not valid for this place before (the ride is held, the cancel text ready).
+ *   'unknown' — anything else: the rider still gets the normal confirmation, and the dashboard asks the dispatcher.
+ *   ''        — no drop-off.
+ * Nothing is looked up online: every check happens on this computer.
+ *
+ * Remembered decisions: Script Property PLACE_REPORTS (kept across nights; the 2:30 AM reset never touches it), shared
+ * with the place-report system for dispatch + texting (one list, baked into Places.gs by the next release) =
+ *   JSON [{ key: placeKey_(place), text: 'the place as typed', kind: 'dropoff' | 'pickup', verdict: 'valid' | 'invalid',
+ *           by: 'texts-dashboard', at: ms }]   — one entry per key + kind (a new verdict replaces the old one).
+ * exportPlaceReports() (Code.gs) returns the whole list. Only drop-off entries decide dropoffStatus_.
+ */
+const PLACE_REPORTS_PROP = 'PLACE_REPORTS';
+function placeReports_() {
+  try { const v = JSON.parse(SP_().getProperty(PLACE_REPORTS_PROP) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+}
+/** { placeKey_: { ok, text, at } } from the drop-off reports (what dropoffStatus_ reads). */
+function dropDecisions_() {
+  const d = {};
+  placeReports_().filter(x => x && x.kind === 'dropoff' && x.key).forEach(x => { d[x.key] = { ok: x.verdict === 'valid', text: x.text, at: x.at }; });
+  return d;
+}
+function dropoffStatus_(text, decisions) {
+  const t = String(text == null ? '' : text).trim();
+  if (!t) return '';
+  const key = placeKey_(t), d = (decisions || dropDecisions_())[key];
+  if (d) return d.ok ? 'ok' : 'invalid';
+  if (canonPlace_(t) || ZONE_OF[key] || SAFE_DROPOFFS.has(key) || SAFE_DROPOFFS.has(placeNorm_(dropNote_(t) || t))) return 'ok';
+  if (partZone_(t) || /\b78712\b/.test(t) || mentionsCampusPlace_(t) || nameZone_(t)) return 'ok';
+  const bare = dropNote_(t);
+  if (zoneFromAddress_(t) || (bare && zoneFromAddress_(bare)) || embeddedAddressZone_(t) || nearCampusAddress_(t)) return 'ok';
+  return 'unknown';
+}
+// "2400 Leon St", "1020 E 45th Street", "502 Elmwood Pl": a house number + a street we know is around campus
+// (West Campus, Hyde Park, North Campus, the east side of campus). Downtown ("201 W 3rd St") is not.
+const NEAR_CAMPUS_STREETS = WEST_CAMPUS_STREETS.concat(['speedway', 'duval', 'guadalupe', 'red river', 'san jacinto', 'tom green',
+  'grooms', 'helms', 'cole', 'medical arts', 'swisher', 'hemphill', 'elmwood', 'avenue a', 'avenue b', 'avenue c', 'avenue d',
+  'avenue f', 'avenue g', 'avenue h', 'woodrow', 'keith', 'duncan', 'harris park', 'wheless', 'peck', 'lamar', 'hampton',
+  'park', 'west', 'whitis', 'university', 'dean keeton', 'dean keaton', 'manor', 'leona', 'robert dedman', 'oldham', 'bellevue', 'kenwood']);
+function nearCampusAddress_(text) {
+  const t = ' ' + String(text).toLowerCase().replace(/[.,#]/g, ' ').replace(/\s+/g, ' ') + ' ';
+  const m = /\s(\d{2,5})\s+(?:[nsew]\s+|north\s+|south\s+|east\s+|west\s+)?([a-z][a-z ]*)/.exec(t);
+  if (!m) return false;
+  const n = Number(m[1]), street = m[2].trim();
+  if (/^(\d{1,2})(st|nd|rd|th)\b/.test(street)) return false; // numbered streets: zoneFromAddress_ already decided
+  return n >= 100 && n <= 5300 && NEAR_CAMPUS_STREETS.some(s => street.startsWith(s + ' ') || street === s);
+}
+// Past drop-offs crews completed 2+ times that the rules above don't already know (placeKey_ form), from the old Google
+// sheets (2025-26 and 2026-27, every monthly tab, rides with an arrival / driver and no cancel reason). Generated 2026-11-19.
+const SAFE_DROPOFFS = new Set([
+  "1001concordiaave", "1002ellingsonln", "1300westpeaseparkside", "1802westave", "1883atcameroon", "1884cameron",
+  "1910robinsplace", "21onrio", "21pearlwest", "21stcoo", "22150", "22ndoninspired", "2300quartersoncampusatnueces",
+  "2309shoalcreekblvd", "2311shaolcreekblvd", "2311shoalcreekblvd", "2317shoalcreekblvd", "2400longview", "2400neucues",
+  "2400nuecus", "2400setonave", "2401longview", "2401lonview", "24longivew", "24nueces", "24regentswest", "2500noble",
+  "2500samgabriel", "25thandriogrande", "25thblockeast", "26thregentswest", "26thwest", "26w", "2700nuces", "2700nueses",
+  "2700thnueces", "27garage", "2819riograde", "2819riogrand", "407", "503carolynave", "506harrisave", "630maidenln", "809leanard",
+  "809leonard", "908poplar", "9atwampus", "9atwest", "9hundred", "9onleon", "9onrio", "9rio", "adpi", "adr", "aepi", "aspenwood",
+  "atandthotel", "atandthotelandconferencecenter", "aura32", "aurathirty2", "avana", "avia", "bhaktiashram", "blackstone",
+  "block", "block23", "block25the", "block25theast", "block25west", "blockat25th", "blockat25theast", "blockat25thwest",
+  "blockat28th", "blockeaston25th", "blockin28th", "blockinrio", "blockon25", "blockon25east", "blockon25th25thandpearl",
+  "blockon25thandpearl", "blockon25the", "blockon25thwest25thandpearl", "blockon26th", "blockon28", "blockon28thnexttosparkq",
+  "blockon28thw28th", "blockonpearlsouth2200", "blockonriobycabobobs", "blockonriogrande", "blockonriograndeand29th",
+  "blockonsouthpearl", "braeburn", "buckinghamhomes", "buckinghamsquare", "callawayhouse", "calloway", "cameronhouse",
+  "camimoflats", "camino", "caminoaps", "campuscrossing", "carathors", "casadelrio", "cascade", "cascadecondominium",
+  "cascadecondominiums", "centenialcondominiums", "centennial", "centennialcondominium", "centennialcondominiums",
+  "centennialcondonimium", "charlesalanwrightfields", "childrensresearchcenter", "clarkcourts", "condominiumcentennial", "corner",
+  "corneronyugo", "corneryugo", "crioxcondos", "croix", "croixcondo", "croixcondoson24th", "delphi", "delphicondominium",
+  "delphicondominiums", "delphicondos", "diplomat", "dobbie", "dobies", "dosrio", "dosrios", "dtd", "dueton39th", "duval",
+  "duvalandeast50th", "duvalvillaapartaments", "duvalvillaappartments", "eastcampusparkinggarage", "eastwood",
+  "eastwoodonswisher", "elmwood", "escala", "escalaatsangabriel", "escalaonsangabriel", "escalasangabriel", "foutainterrace",
+  "frenchhouse", "gablescentralpark", "galileocondos", "galileoon25th", "gazebocondos", "georgian", "georgiancondos",
+  "grahamplacecondominium", "grahamplcondomimiums", "graysonquarters", "guadalupe31", "halstead", "halsteadnuecesandlaurelcoops",
+  "hardenhouse", "hardinhouse", "healthcenterparkinggarage", "heathcaregarage", "honorsquad", "houseofaudreandlord",
+  "houseofcommons", "hydepark", "hydeparkbaptistchurch", "hydeparkcourt", "hydeparkoaks", "iconat", "inspire22nd",
+  "inspireat22nd", "inspirein22nd", "inspireon22", "inspireon22ns", "intramuralfields", "josephscorner", "karneshouse",
+  "karneshouseonwest22nd12", "lantana", "lenoxcondominiums", "leonplacecondominiums",
+  "llilasbensonlatinamericanstudiesandcollections", "longhornlofts", "longhornlot115", "markat", "marquptown", "mbb",
+  "montgomeryhouse", "monticello", "monticellostudiosathydepark", "mrhmusicrecital", "nineat26th", "nineatwampus", "nineon26th",
+  "nineonleon", "nineonrio", "nineonwesr", "ninerio", "ninewest", "noble2400", "northpointstudentliving", "northtanglewood",
+  "novahouse", "nueces", "nueces2300", "nueces2400", "nuecescornercondos", "oakparkaps", "orangetreeaps", "orangetreecondos82",
+  "palmetto", "parapetcondos", "parkavenueplace", "parkinglot118", "parkinglot37", "parkplaceoffof24thandleon", "pearl21",
+  "peaseparkside", "pecansquare", "peppertree", "piazzanavona", "pike", "pikehouse", "pointeonrio", "quarters",
+  "quartersathardinhouse", "quartersatsterling", "quarterscameron", "quarterscameronhouse", "quartersgreyson",
+  "quartersmontgomery", "quartersoncameron", "quartersoncampus", "quartersoncampusgraysonhouse", "quartersoncampusnueces",
+  "quartersoncampusnueceshouse", "quartersoncampussterling", "quartersoncampussterlinghouse", "quartersonsterling",
+  "quarterssterlinghouse", "quarterssterlingon22nd", "quatersgrayson", "quaterssterling", "rambleratx", "reagentswestat24th",
+  "reagentswestat26th", "reagentsweston26th", "recgym", "regeantswestat26", "regents24th", "regents26", "regents26th",
+  "regents26west", "regentson24", "regentsw24th", "regentswest", "regentswest24", "regentswest26", "regentswestat24",
+  "regentswestat26", "regentwestat26th", "regentweston24th", "regentweston26th", "residencesattriangle", "rio", "rioflats",
+  "riogrande", "riograndesquare", "riseatwampus", "riveroaks", "riveroaksappartments", "sabina", "sancheseducation", "sandpiper",
+  "sangabriel", "savanahcondo", "savannahcondominiums", "scottishright", "signature", "sinclairon28th", "sparq", "sterlinghouse",
+  "sterlinghousequartersoncampus", "sterlingquartershouse", "summit", "tanglewoodnorthappartment", "taos", "taoscooperative",
+  "tejas", "tejasclub", "tejashouse", "texan304", "texanandvintage", "texanandvintageonw2212", "texanandvintageonw22nd12",
+  "texanpearlcomplex", "texanshoalcreek", "texantowers", "texantowerscondominium", "texantowerscondominiums", "texantowerscondos",
+  "theastwood", "tke", "tkehouse", "torrestudentliving", "trad", "tradition", "traditionpointeonrio", "tradonrio", "triangle",
+  "trianglecommonspocketpark", "trinity", "trinityparkinggarage", "troubadour", "twentyone15", "twentytwofifteen", "ucc",
+  "usantonio", "utlaw", "utoutpost", "utsoftballfield", "utspeedway", "utwhitakercourts", "vanderbiltappt",
+  "vanderbiltcondominiums", "vanderbiltcondos", "venue", "villageattriangle", "villas", "villasat26th", "villasatsangabriel",
+  "villasin26th", "villasof26th", "villasofsangabriel", "villason22nd", "villason24", "villasonsangabriel", "villassangabriel",
+  "vintage", "vintage2212", "vintagewest", "waterfordcondominiums", "waterfordcondos", "waterlootowers", "westat9",
+  "whitakercourts", "whitakertenniscourts", "womensfederation", "wranglerhouse", "wranglers", "yugowaterloo2400setonave", "zta",
+]);
